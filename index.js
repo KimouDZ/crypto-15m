@@ -91,7 +91,7 @@ async function runAnalysis() {
 }
 
 // تشغيل التحليل كل 15 دقيقة
-cron.schedule("*/15 * * * *", () => {
+cron.schedule("*/1 * * * *", async () => {
     console.log("تشغيل التحليل...");
     runAnalysis();
 });
