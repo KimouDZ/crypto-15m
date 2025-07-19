@@ -117,4 +117,4 @@ async function runAnalysis() {
 }
 
 // جدول المهام كل دقيقة
-cron.schedule('*/1 * * * *', runAnalysis);
+cron.schedule('*/2 * * * *', runAnalysis);
