@@ -114,4 +114,4 @@ async function runAnalysis() {
   }
 }
 
-cron.schedule('*/15 * * * *', runAnalysis); // كل 15 دقيقة
+cron.schedule('*/2 * * * *', runAnalysis); // كل 15 دقيقة
