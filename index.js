@@ -44,8 +44,8 @@ async function analyzeSymbol(symbol) {
     const macdBuyHist = macd({
       values: closes,
       fastPeriod: 1,
-      slowPeriod: 50,
-      signalPeriod: 20,
+      slowPeriod: 10,
+      signalPeriod: 4,
       SimpleMAOscillator: false,
       SimpleMASignal: false
     }).map(v => v.histogram);
@@ -64,7 +64,7 @@ async function analyzeSymbol(symbol) {
 
     const hasBuySignal =
       rsiVal < 45 &&
-      percentB < 0.4 &&
+      percentB < 0.2 &&
       macdBuySignal[0] < 0 &&
       macdBuySignal[1] > 0;
 
