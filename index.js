@@ -112,7 +112,10 @@ async function analyze() {
   }
 }
 
-// كل دقيقة
+// تحليل العملات كل 15 دقيقة
 cron.schedule("*/15 * * * *", async () => {
+  console.log("تشغيل التحليل كل 15 دقيقة");
+  await analyzeCoins();
+});
 
 console.log("🚀 البوت يعمل الآن على فريم 15 دقيقة كل دقيقة");
