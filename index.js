@@ -4,30 +4,29 @@ import cron from 'node-cron';
 import { macd, rsi, bollingerbands } from 'technicalindicators';
 import fs from 'fs';
 
-// قراءة العملات من ملف coins.json
+// تحميل قائمة العملات
 const coins = JSON.parse(fs.readFileSync('./coins.json', 'utf-8'));
 
 // إعدادات التليجرام
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
 const CHAT_ID = '1055739217';
 
-// تهيئة Binance
+// تهيئة البورصة
 const binance = new ccxt.binance();
 
-// تخزين العملات المفتوحة مع سعر الشراء
+// تخزين الصفقات المفتوحة في ملف
+const positionsFile = './openPositions.json';
 let openPositions = {};
-
-// محاولة تحميل المراكز المفتوحة من ملف (في حال الإعادة)
-if (fs.existsSync('./positions.json')) {
-  openPositions = JSON.parse(fs.readFileSync('./positions.json', 'utf-8'));
+if (fs.existsSync(positionsFile)) {
+  openPositions = JSON.parse(fs.readFileSync(positionsFile, 'utf-8'));
 }
 
-// حفظ المراكز المفتوحة إلى ملف
+// حفظ المراكز المفتوحة
 function savePositions() {
-  fs.writeFileSync('./positions.json', JSON.stringify(openPositions, null, 2));
+  fs.writeFileSync(positionsFile, JSON.stringify(openPositions, null, 2));
 }
 
-// إرسال رسالة إلى Telegram بتنسيق Markdown
+// إرسال رسالة إلى التليجرام
 async function sendTelegramMessage(message) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
   await axios.post(url, {
@@ -44,6 +43,9 @@ async function analyzeSymbol(symbol) {
     const ohlcv = await binance.fetchOHLCV(symbol, '15m', undefined, 100);
 
     const closes = ohlcv.map(c => c[4]);
+    const highs = ohlcv.map(c => c[2]);
+    const lows = ohlcv.map(c => c[3]);
+
     const last = closes[closes.length - 1];
 
     const rsiVal = rsi({ values: closes, period: 14 }).slice(-1)[0];
@@ -75,7 +77,7 @@ async function analyzeSymbol(symbol) {
 
     const hasBuySignal =
       rsiVal < 45 &&
-      percentB < 0.2 &&
+      percentB < 0.4 &&
       macdBuySignal[0] < 0 &&
       macdBuySignal[1] > 0;
 
@@ -85,22 +87,26 @@ async function analyzeSymbol(symbol) {
       macdSellSignal[1] < 0;
 
     // إشعار الشراء
-    if (hasBuySignal && !openPositions[symbol]) {
-      openPositions[symbol] = last;
-      savePositions();
+    if (hasBuySignal) {
+      if (!openPositions[symbol]) {
+        openPositions[symbol] = last;
+        savePositions();
 
-      const message = `📈 *إشارة شراء*\n\n🪙 العملة: *${symbol}*\n💰 السعر: *${last}*\n🕐 الوقت: *${new Date().toLocaleString()}*`;
-      await sendTelegramMessage(message);
+        const message = `📈 *إشارة شراء*\n\n🪙 العملة: *${symbol}*\n💰 السعر: *${last}*\n🕐 الوقت: *${new Date().toLocaleString()}*`;
+        await sendTelegramMessage(message);
+      } else {
+        console.log(`🔁 تم تجاهل ${symbol} لأنها مشْتراة مسبقًا.`);
+      }
     }
 
     // إشعار البيع
     if (hasSellSignal) {
       const buyPrice = openPositions[symbol];
-      const profitPercent = (((last - buyPrice) / buyPrice) * 100).toFixed(2);
+      const pnl = ((last - buyPrice) / buyPrice * 100).toFixed(2);
       delete openPositions[symbol];
       savePositions();
 
-      const message = `📉 *إشارة بيع*\n\n🪙 العملة: *${symbol}*\n💰 السعر: *${last}*\n📊 ${profitPercent >= 0 ? 'ربح' : 'خسارة'}: *${profitPercent}%*\n🕐 الوقت: *${new Date().toLocaleString()}*`;
+      const message = `📉 *إشارة بيع*\n\n🪙 العملة: *${symbol}*\n💰 السعر: *${last}*\n📊 الربح/الخسارة: *${pnl}%*\n🕐 الوقت: *${new Date().toLocaleString()}*`;
       await sendTelegramMessage(message);
     }
   } catch (err) {
@@ -108,13 +114,13 @@ async function analyzeSymbol(symbol) {
   }
 }
 
-// تحليل كل العملات
+// تحليل جميع العملات
 async function runAnalysis() {
-  console.log(`[${new Date().toLocaleTimeString()}] 🔍 بدء التحليل...`);
+  console.log(`[${new Date().toLocaleTimeString()}] ✅ بدء تحليل العملات...`);
   for (const symbol of coins) {
     await analyzeSymbol(symbol);
   }
 }
 
-// جدول المهام كل دقيقة
-cron.schedule('*/2 * * * *', runAnalysis);
+// ⏱️ كل دقيقة
+cron.schedule('*/1 * * * *', runAnalysis);
