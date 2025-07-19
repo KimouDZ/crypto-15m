@@ -5,7 +5,6 @@ import { macd, rsi, bollingerbands } from 'technicalindicators';
 import fs from 'fs';
 
 const coins = JSON.parse(fs.readFileSync('./coins.json', 'utf-8'));
-
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
 const CHAT_ID = '1055739217';
 const POSITIONS_FILE = './openPositions.json';
@@ -37,7 +36,6 @@ async function analyzeSymbol(symbol) {
 
     const closes = ohlcv.map(c => c[4]);
     const last = closes[closes.length - 1];
-
     const rsiVal = rsi({ values: closes, period: 14 }).slice(-1)[0];
     const bb = bollingerbands({ period: 20, stdDev: 2, values: closes }).slice(-1)[0];
     const percentB = (last - bb.lower) / (bb.upper - bb.lower);
@@ -74,15 +72,15 @@ async function analyzeSymbol(symbol) {
       macdSellSignal[0] > 0 &&
       macdSellSignal[1] < 0;
 
-    const time = new Date().toLocaleTimeString('ar-DZ', { hour12: false });
+    const time = new Date().toLocaleString('ar-DZ', { hour12: false });
 
     if (hasBuySignal && !openPositions[symbol]) {
       openPositions[symbol] = { buyPrice: last, time };
       savePositions();
       await sendTelegramMessage(`🟢 *شراء*
-- العملة: *${symbol}*
-- السعر: *${last}*
-- الوقت: *${time}*`);
+📈 العملة: *${symbol}*
+💰 السعر: *${last}*
+⏰ الوقت: *${time}*`);
     }
 
     if (hasSellSignal) {
@@ -91,10 +89,10 @@ async function analyzeSymbol(symbol) {
       delete openPositions[symbol];
       savePositions();
       await sendTelegramMessage(`🔴 *بيع*
-- العملة: *${symbol}*
-- السعر: *${last}*
-- الوقت: *${time}*
-- نسبة التغير: *${change}%*`);
+📉 العملة: *${symbol}*
+💰 السعر: *${last}*
+⏰ الوقت: *${time}*
+📊 نسبة التغير: *${change}%*`);
     }
   } catch (err) {
     console.error(`خطأ في ${symbol}:`, err.message);
