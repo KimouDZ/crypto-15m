@@ -98,4 +98,4 @@ async function runAnalysis() {
 }
 
 // كل دقيقة
-cron.schedule('*/1 * * * *', runAnalysis);
+cron.schedule('*/2 * * * *', runAnalysis);
