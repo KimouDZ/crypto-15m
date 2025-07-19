@@ -113,6 +113,6 @@ async function analyze() {
 }
 
 // كل دقيقة
-cron.schedule("* * * * *", analyze);
+cron.schedule("*/15 * * * *", async () => {
 
 console.log("🚀 البوت يعمل الآن على فريم 15 دقيقة كل دقيقة");
