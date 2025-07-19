@@ -94,6 +94,6 @@ async function runAnalysis() {
 }
 
 // ⏱️ كل دقيقة
-cron.schedule('*/1 * * * *', runAnalysis);
+cron.schedule('*/5 * * * *', runAnalysis);
 
 
