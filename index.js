@@ -1,105 +1,117 @@
-import fs from "fs";
+// index.js
 import axios from "axios";
+import ccxt from "ccxt";
 import cron from "node-cron";
+import fs from "fs";
 
-const coins = JSON.parse(fs.readFileSync("./coins.json", "utf8"));
-const TELEGRAM_TOKEN = "8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8";
-const CHAT_ID = "1055739217"; // معرف الشات الخاص بك
+const coins = JSON.parse(fs.readFileSync("./coins.json"));
+const TELEGRAM_TOKEN = "8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8"; // ضع توكن البوت هنا
+const CHAT_ID = "1055739217"; // معرف الدردشة الخاص بك
+const timeframe = "15m";
+const exchange = new ccxt.binance();
 
-// RSI لحساب القوة النسبية من آخر 15 شمعة
-function rsi(values, period = 14) {
-    let gains = 0, losses = 0;
-    for (let i = values.length - period - 1; i < values.length - 1; i++) {
-        const diff = values[i + 1] - values[i];
-        if (diff > 0) gains += diff;
-        else losses -= diff;
+let lastSignals = {};
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchData(symbol) {
+  try {
+    const ohlcv = await exchange.fetchOHLCV(symbol, timeframe, undefined, 100);
+    const closes = ohlcv.map(c => c[4]);
+    return closes;
+  } catch (err) {
+    console.error(`فشل في جلب بيانات ${symbol}:`, err.message);
+    return null;
+  }
+}
+
+function calculateIndicators(closes) {
+  const rsiPeriod = 14;
+  const bbPeriod = 20;
+  const bbStdDev = 2.0;
+  const macdBuy = { fast: 1, slow: 10, signal: 4 };
+  const macdSell = { fast: 1, slow: 100, signal: 8 };
+
+  const slice = closes.slice(-Math.max(100, bbPeriod + 2));
+  const close = slice[slice.length - 1];
+
+  // RSI
+  let gains = 0, losses = 0;
+  for (let i = slice.length - rsiPeriod - 1; i < slice.length - 1; i++) {
+    const diff = slice[i + 1] - slice[i];
+    if (diff >= 0) gains += diff;
+    else losses -= diff;
+  }
+  const rs = gains / (losses || 1);
+  const rsi = 100 - 100 / (1 + rs);
+
+  // Bollinger Bands %B
+  const bbSlice = slice.slice(-bbPeriod);
+  const sma = bbSlice.reduce((a, b) => a + b, 0) / bbPeriod;
+  const variance = bbSlice.reduce((a, b) => a + Math.pow(b - sma, 2), 0) / bbPeriod;
+  const stdDev = Math.sqrt(variance);
+  const upper = sma + bbStdDev * stdDev;
+  const lower = sma - bbStdDev * stdDev;
+  const percentB = (close - lower) / (upper - lower);
+
+  // MACD
+  function calcEMA(period, values) {
+    const k = 2 / (period + 1);
+    let ema = values[0];
+    for (let i = 1; i < values.length; i++) {
+      ema = values[i] * k + ema * (1 - k);
     }
-    const rs = gains / (losses || 1);
-    return 100 - (100 / (1 + rs));
-}
+    return ema;
+  }
 
-// %B لحساب نسبة موقع السعر داخل البولنجر باند
-function percentB(close, upper, lower) {
-    return (close - lower) / (upper - lower);
-}
-
-// MACD
-function macd(closes, fast = 1, slow = 50, signal = 20) {
-    const ema = (length, data) => {
-        const k = 2 / (length + 1);
-        let ema = data[0];
-        const result = [ema];
-        for (let i = 1; i < data.length; i++) {
-            ema = data[i] * k + ema * (1 - k);
-            result.push(ema);
-        }
-        return result;
-    };
-    const macdLine = ema(fast, closes).map((v, i) => v - ema(slow, closes)[i]);
-    const signalLine = ema(signal, macdLine);
+  function calcMACD({ fast, slow, signal }, values) {
+    const fastEMA = calcEMA(fast, values);
+    const slowEMA = calcEMA(slow, values);
+    const macdLine = fastEMA - slowEMA;
+    const signalLine = calcEMA(signal, [ ...values.slice(-signal), macdLine ]);
     return { macdLine, signalLine };
+  }
+
+  const macdBuyResult = calcMACD(macdBuy, slice);
+  const macdSellResult = calcMACD(macdSell, slice);
+
+  return { rsi, percentB, macdBuy: macdBuyResult, macdSell: macdSellResult };
 }
 
-// إرسال تنبيه إلى Telegram
-async function sendAlert(text) {
-    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
-    await axios.post(url, { chat_id: CHAT_ID, text });
+async function analyzeSymbol(symbol) {
+  const closes = await fetchData(symbol);
+  if (!closes) return;
+
+  const { rsi, percentB, macdBuy, macdSell } = calculateIndicators(closes);
+
+  const last = lastSignals[symbol] || "NONE";
+  const isBuy = rsi < 45 && percentB < 0.2 && macdBuy.macdLine > macdBuy.signalLine;
+  const wasBuy = last === "BUY";
+  const isSell = wasBuy && macdSell.macdLine < macdSell.signalLine;
+
+  if (isBuy && last !== "BUY") {
+    await sendTelegram(`🔔 شراء على ${symbol}\nRSI = ${rsi.toFixed(2)}\n%B = ${percentB.toFixed(2)}`);
+    lastSignals[symbol] = "BUY";
+  } else if (isSell && last !== "SELL") {
+    await sendTelegram(`⚠️ بيع على ${symbol}`);
+    lastSignals[symbol] = "SELL";
+  }
 }
 
-// تحليل عملة واحدة
-async function analyze(symbol) {
-    try {
-        const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=100`;
-        const res = await axios.get(url);
-        const data = res.data;
-
-        const closes = data.map(c => parseFloat(c[4]));
-        const rsiValue = rsi(closes.slice(-15));
-
-        const bbPeriod = 20;
-        const recentCloses = closes.slice(-bbPeriod);
-        const mean = recentCloses.reduce((a, b) => a + b) / bbPeriod;
-        const std = Math.sqrt(recentCloses.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / bbPeriod);
-        const upper = mean + 2 * std;
-        const lower = mean - 2 * std;
-        const pB = percentB(closes[closes.length - 1], upper, lower);
-
-        const buyMACD = macd(closes, 1, 50, 20);
-        const sellMACD = macd(closes, 1, 100, 8);
-
-        const macdLine = buyMACD.macdLine;
-        const signalLine = buyMACD.signalLine;
-        const prevMACD = macdLine[macdLine.length - 2];
-        const currMACD = macdLine[macdLine.length - 1];
-        const prevSig = signalLine[signalLine.length - 2];
-        const currSig = signalLine[signalLine.length - 1];
-
-        const macdUp = prevMACD < prevSig && currMACD > currSig;
-
-        const macdLineSell = sellMACD.macdLine;
-        const signalLineSell = sellMACD.signalLine;
-        const prevMACDSell = macdLineSell[macdLineSell.length - 2];
-        const currMACDSell = macdLineSell[macdLineSell.length - 1];
-        const prevSigSell = signalLineSell[signalLineSell.length - 2];
-        const currSigSell = signalLineSell[signalLineSell.length - 1];
-
-        const macdDown = prevMACDSell > prevSigSell && currMACDSell < currSigSell;
-
-        if (rsiValue < 45 && pB < 0.4 && macdUp) {
-            await sendAlert(`✅ إشارة شراء على ${symbol}`);
-        } else if (macdDown) {
-            await sendAlert(`❌ إشارة بيع على ${symbol}`);
-        }
-
-    } catch (error) {
-        console.error(`خطأ في ${symbol}:`, error.message);
-    }
+async function sendTelegram(message) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+  await axios.post(url, {
+    chat_id: CHAT_ID,
+    text: message
+  });
 }
 
-// تحليل كل العملات كل دقيقة
-cron.schedule("* * * * *", async () => {
-    console.log("🔁 جاري التحليل...");
-    for (const symbol of coins) {
-        await analyze(symbol);
-    }
+cron.schedule("*/1 * * * *", async () => {
+  console.log("🔄 جاري التحليل...");
+  for (const coin of coins) {
+    await analyzeSymbol(coin.symbol);
+    await sleep(250);
+  }
 });
