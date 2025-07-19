@@ -2,7 +2,9 @@ import ccxt from 'ccxt';
 import axios from 'axios';
 import cron from 'node-cron';
 import { macd, rsi, bollingerbands } from 'technicalindicators';
-import coins from './coins.json' assert { type: 'json' };
+import fs from 'fs';
+
+const coins = JSON.parse(fs.readFileSync('./coins.json', 'utf-8'));
 
 // إعدادات التليجرام
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
