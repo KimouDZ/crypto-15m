@@ -5,7 +5,7 @@ import coins from "./coins.json" assert { type: "json" };
 const TELEGRAM_TOKEN = "8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8";
 const CHAT_ID = "1055739217"; // معرفك كما طلبت
 const interval = "1h";
-const limit = 100;
+const limit = 50;
 
 async function getCandles(symbol, interval, limit) {
   const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
