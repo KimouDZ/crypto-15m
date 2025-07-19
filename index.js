@@ -4,94 +4,102 @@ import cron from "node-cron";
 
 const coins = JSON.parse(fs.readFileSync("./coins.json", "utf8"));
 const TELEGRAM_TOKEN = "8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8";
-const CHAT_ID = "1055739217";
+const CHAT_ID = "1055739217"; // معرف الشات الخاص بك
 
-// تحليل RSI
+// RSI لحساب القوة النسبية من آخر 15 شمعة
 function rsi(values, period = 14) {
     let gains = 0, losses = 0;
-    for (let i = 1; i <= period; i++) {
-        let diff = values[values.length - 1 - i] - values[values.length - 2 - i];
-        if (diff >= 0) gains += diff;
+    for (let i = values.length - period - 1; i < values.length - 1; i++) {
+        const diff = values[i + 1] - values[i];
+        if (diff > 0) gains += diff;
         else losses -= diff;
     }
-    let avgGain = gains / period;
-    let avgLoss = losses / period;
-    let rs = avgGain / avgLoss;
-    return 100 - 100 / (1 + rs);
+    const rs = gains / (losses || 1);
+    return 100 - (100 / (1 + rs));
 }
 
-// حساب %B
-function percentB(close, bbUpper, bbLower) {
-    return (close - bbLower) / (bbUpper - bbLower);
+// %B لحساب نسبة موقع السعر داخل البولنجر باند
+function percentB(close, upper, lower) {
+    return (close - lower) / (upper - lower);
 }
 
-// تحليل MACD
-function macd(data, fast = 1, slow = 50, signal = 20) {
-    const ema = (period, values) => {
-        const k = 2 / (period + 1);
-        let emaArray = [values[0]];
-        for (let i = 1; i < values.length; i++) {
-            emaArray.push(values[i] * k + emaArray[i - 1] * (1 - k));
+// MACD
+function macd(closes, fast = 1, slow = 50, signal = 20) {
+    const ema = (length, data) => {
+        const k = 2 / (length + 1);
+        let ema = data[0];
+        const result = [ema];
+        for (let i = 1; i < data.length; i++) {
+            ema = data[i] * k + ema * (1 - k);
+            result.push(ema);
         }
-        return emaArray;
+        return result;
     };
-    const fastEMA = ema(fast, data);
-    const slowEMA = ema(slow, data);
-    const macdLine = fastEMA.map((val, i) => val - slowEMA[i]);
+    const macdLine = ema(fast, closes).map((v, i) => v - ema(slow, closes)[i]);
     const signalLine = ema(signal, macdLine);
     return { macdLine, signalLine };
 }
 
-// إرسال التنبيه
-async function sendTelegramAlert(text) {
+// إرسال تنبيه إلى Telegram
+async function sendAlert(text) {
     const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
     await axios.post(url, { chat_id: CHAT_ID, text });
 }
 
-// تحليل كل عملة
-async function analyzeCoin(symbol) {
+// تحليل عملة واحدة
+async function analyze(symbol) {
     try {
         const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=100`;
         const res = await axios.get(url);
-        const closes = res.data.map(c => parseFloat(c[4]));
-        const highs = res.data.map(c => parseFloat(c[2]));
-        const lows = res.data.map(c => parseFloat(c[3]));
+        const data = res.data;
 
-        const rsiValue = rsi(closes);
-        const bbLen = 20, bbMult = 2;
-        const basis = closes.slice(-bbLen).reduce((a, b) => a + b) / bbLen;
-        const stdev = Math.sqrt(closes.slice(-bbLen).reduce((a, b) => a + Math.pow(b - basis, 2), 0) / bbLen);
-        const upper = basis + bbMult * stdev;
-        const lower = basis - bbMult * stdev;
+        const closes = data.map(c => parseFloat(c[4]));
+        const rsiValue = rsi(closes.slice(-15));
+
+        const bbPeriod = 20;
+        const recentCloses = closes.slice(-bbPeriod);
+        const mean = recentCloses.reduce((a, b) => a + b) / bbPeriod;
+        const std = Math.sqrt(recentCloses.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / bbPeriod);
+        const upper = mean + 2 * std;
+        const lower = mean - 2 * std;
         const pB = percentB(closes[closes.length - 1], upper, lower);
 
         const buyMACD = macd(closes, 1, 50, 20);
-        const macdUp = buyMACD.macdLine.slice(-2)[0] < buyMACD.signalLine.slice(-2)[0]
-                    && buyMACD.macdLine.slice(-1)[0] > buyMACD.signalLine.slice(-1)[0];
-
         const sellMACD = macd(closes, 1, 100, 8);
-        const macdDown = sellMACD.macdLine.slice(-2)[0] > sellMACD.signalLine.slice(-2)[0]
-                    && sellMACD.macdLine.slice(-1)[0] < sellMACD.signalLine.slice(-1)[0];
+
+        const macdLine = buyMACD.macdLine;
+        const signalLine = buyMACD.signalLine;
+        const prevMACD = macdLine[macdLine.length - 2];
+        const currMACD = macdLine[macdLine.length - 1];
+        const prevSig = signalLine[signalLine.length - 2];
+        const currSig = signalLine[signalLine.length - 1];
+
+        const macdUp = prevMACD < prevSig && currMACD > currSig;
+
+        const macdLineSell = sellMACD.macdLine;
+        const signalLineSell = sellMACD.signalLine;
+        const prevMACDSell = macdLineSell[macdLineSell.length - 2];
+        const currMACDSell = macdLineSell[macdLineSell.length - 1];
+        const prevSigSell = signalLineSell[signalLineSell.length - 2];
+        const currSigSell = signalLineSell[signalLineSell.length - 1];
+
+        const macdDown = prevMACDSell > prevSigSell && currMACDSell < currSigSell;
 
         if (rsiValue < 45 && pB < 0.4 && macdUp) {
-            await sendTelegramAlert(`🔔 إشارة شراء على ${symbol}`);
+            await sendAlert(`✅ إشارة شراء على ${symbol}`);
         } else if (macdDown) {
-            await sendTelegramAlert(`📉 إشارة بيع على ${symbol}`);
+            await sendAlert(`❌ إشارة بيع على ${symbol}`);
         }
-    } catch (e) {
-        console.error(`خطأ في ${symbol}:`, e.message);
+
+    } catch (error) {
+        console.error(`خطأ في ${symbol}:`, error.message);
     }
 }
 
-// تحليل كل العملات
-async function runAnalysis() {
+// تحليل كل العملات كل دقيقة
+cron.schedule("* * * * *", async () => {
+    console.log("🔁 جاري التحليل...");
     for (const symbol of coins) {
-        await analyzeCoin(symbol);
+        await analyze(symbol);
     }
-}
-
-// تشغيل التحليل كل 15 دقيقة
-cron.schedule("*/1 * * * *", async () => {
-    console.log("تشغيل التحليل...");
-    runAnalysis();
 });
