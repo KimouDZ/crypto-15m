@@ -23,9 +23,6 @@ async function sendTelegramMessage(msg) {
 
 function calculateIndicators(candles) {
   const closes = candles.map(c => c[4]);
-  const highs = candles.map(c => c[2]);
-  const lows = candles.map(c => c[3]);
-
   const rsi = RSI.calculate({ values: closes, period: 14 }).at(-1);
   const bb = BollingerBands.calculate({ period: 20, stdDev: 2, values: closes }).at(-1);
   if (!rsi || !bb) return null;
@@ -69,22 +66,35 @@ function calculateIndicators(candles) {
 
 async function analyzeSymbol(symbol) {
   try {
+    const markets = await exchange.loadMarkets();
+    if (!markets[symbol]) throw new Error('السوق غير موجود');
+
     const ohlcv = await exchange.fetchOHLCV(symbol, '15m', undefined, 200);
     const indicators = calculateIndicators(ohlcv);
     if (!indicators) throw new Error('بيانات غير كافية');
 
     const price = ohlcv.at(-1)[4];
-    const s = state[symbol] || { inTrade: false };
+    const now = Date.now();
+    const s = state[symbol] || { inTrade: false, lastBuyTime: 0, lastSellTime: 0 };
 
-    if (!s.inTrade) {
-      if (indicators.rsi < 45 && indicators.percentB < 0.2 && indicators.macdCrossUp) {
+    // منطق الشراء
+    if (!s.inTrade && indicators.rsi < 45 && indicators.percentB < 0.2 && indicators.macdCrossUp) {
+      if (now - s.lastBuyTime > 5 * 60 * 1000) { // تأكيد عدم تكرار الإشارة خلال 5 دقائق
         s.inTrade = true;
+        s.buyPrice = price;
+        s.lastBuyTime = now;
         await sendTelegramMessage(`✅ <b>إشارة شراء</b>\nالعملة: <b>${symbol}</b>\nالسعر: <b>${price}</b>\nالوقت: ${new Date().toLocaleString()}`);
       }
-    } else {
-      if (indicators.macdCrossDown) {
+    }
+
+    // منطق البيع
+    else if (s.inTrade && indicators.macdCrossDown) {
+      if (now - s.lastSellTime > 5 * 60 * 1000) {
         s.inTrade = false;
-        await sendTelegramMessage(`🔴 <b>إشارة بيع</b>\nالعملة: <b>${symbol}</b>\nالسعر: <b>${price}</b>\nالوقت: ${new Date().toLocaleString()}`);
+        s.lastSellTime = now;
+        const buyPrice = s.buyPrice || price;
+        const pnl = (((price - buyPrice) / buyPrice) * 100).toFixed(2);
+        await sendTelegramMessage(`🔴 <b>إشارة بيع</b>\nالعملة: <b>${symbol}</b>\nالسعر: <b>${price}</b>\nالوقت: ${new Date().toLocaleString()}\n📊 <b>النتيجة:</b> ${pnl}%`);
       }
     }
 
