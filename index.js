@@ -92,7 +92,7 @@ async function analyzeMarket() {
       const { rsi, percentB, closes } = calculateIndicators(candles);
 
       const macdBuy = calculateMACD(closes, 1, 10, 4);
-      const macdSell = calculateMACD(closes, 1, 100, 8);
+      const macdSell = calculateMACD(closes, 1, 100, 3);
       const prevBuy = calculateMACD(closes.slice(0, -1), 1, 10, 4);
       const prevSell = calculateMACD(closes.slice(0, -1), 1, 100, 8);
 
