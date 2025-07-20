@@ -4,14 +4,17 @@ import cron from 'node-cron';
 import { macd, rsi, bollingerbands } from 'technicalindicators';
 import fs from 'fs';
 
+// إعدادات التليجرام
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
 const CHAT_ID = '1055739217';
+
+// ملفات التخزين
 const POSITIONS_FILE = './openPositions.json';
 const coins = JSON.parse(fs.readFileSync('./coins.json', 'utf-8'));
 
+// تهيئة Binance وقراءة الصفقات المفتوحة
 const binance = new ccxt.binance();
 let openPositions = {};
-
 if (fs.existsSync(POSITIONS_FILE)) {
   openPositions = JSON.parse(fs.readFileSync(POSITIONS_FILE, 'utf-8'));
 }
@@ -31,25 +34,27 @@ async function sendTelegramMessage(message) {
 
 async function analyzeSymbol(symbol) {
   try {
-    const market = symbol.replace('/', '');
     const ohlcv = await binance.fetchOHLCV(symbol, '4h', undefined, 100);
-
     const closes = ohlcv.map(c => c[4]);
     const last = closes[closes.length - 1];
 
+    // RSI & %B
     const rsiVal = rsi({ values: closes, period: 14 }).slice(-1)[0];
     const bb = bollingerbands({ period: 20, stdDev: 2, values: closes }).slice(-1)[0];
     const percentB = (last - bb.lower) / (bb.upper - bb.lower);
 
+    // MACD الشراء
     const macdBuyHist = macd({
       values: closes,
       fastPeriod: 1,
-      slowPeriod: 10,
-      signalPeriod: 4,
+      slowPeriod: 50,
+      signalPeriod: 20,
       SimpleMAOscillator: false,
       SimpleMASignal: false
     }).map(v => v.histogram);
+    const macdBuySignal = macdBuyHist.slice(-2);
 
+    // MACD البيع
     const macdSellHist = macd({
       values: closes,
       fastPeriod: 1,
@@ -58,13 +63,11 @@ async function analyzeSymbol(symbol) {
       SimpleMAOscillator: false,
       SimpleMASignal: false
     }).map(v => v.histogram);
-
-    const macdBuySignal = macdBuyHist.slice(-2);
     const macdSellSignal = macdSellHist.slice(-2);
 
     const hasBuySignal =
       rsiVal < 45 &&
-      percentB < 0.2 &&
+      percentB < 0.4 &&
       macdBuySignal[0] < 0 &&
       macdBuySignal[1] > 0;
 
@@ -101,7 +104,6 @@ async function analyzeSymbol(symbol) {
 📊 *الربح:* ${change}%
 ⏰ *الوقت:* ${time}`);
     }
-
   } catch (err) {
     console.error(`⚠️ خطأ في تحليل ${symbol}:`, err.message);
   }
@@ -114,4 +116,5 @@ async function runAnalysis() {
   }
 }
 
-cron.schedule('*/2 * * * *', runAnalysis); // كل 15 دقيقة
+// تنفيذ التحليل كل دقيقتين (يمكن تغييره حسب الحاجة)
+cron.schedule('*/2 * * * *', runAnalysis);
