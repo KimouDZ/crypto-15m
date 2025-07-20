@@ -4,8 +4,8 @@ import ccxt from 'ccxt';
 import cron from 'node-cron';
 import { RSI, BollingerBands, MACD } from 'technicalindicators';
 
-const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
-const CHAT_ID = '1055739217';
+const TELEGRAM_TOKEN = 'ضع_التوكن_هنا';
+const CHAT_ID = 'ضع_chat_id_هنا';
 
 const exchange = new ccxt.binance();
 const coins = JSON.parse(fs.readFileSync('./coins.json'));
@@ -28,6 +28,8 @@ function calculateIndicators(candles) {
 
   const rsi = RSI.calculate({ values: closes, period: 14 }).at(-1);
   const bb = BollingerBands.calculate({ period: 20, stdDev: 2, values: closes }).at(-1);
+  if (!rsi || !bb) return null;
+
   const percentB = (closes.at(-1) - bb.lower) / (bb.upper - bb.lower);
 
   const macdBuy = MACD.calculate({
@@ -48,45 +50,48 @@ function calculateIndicators(candles) {
     SimpleMASignal: false,
   });
 
-  const prevMacdBuy = macdBuy.at(-2);
-  const lastMacdBuy = macdBuy.at(-1);
-  const macdCrossUp = prevMacdBuy.MACD < prevMacdBuy.signal && lastMacdBuy.MACD > lastMacdBuy.signal;
+  let macdCrossUp = false, macdCrossDown = false;
 
-  const prevMacdSell = macdSell.at(-2);
-  const lastMacdSell = macdSell.at(-1);
-  const macdCrossDown = prevMacdSell.MACD > prevMacdSell.signal && lastMacdSell.MACD < lastMacdSell.signal;
+  if (macdBuy.length >= 2) {
+    const prev = macdBuy.at(-2);
+    const last = macdBuy.at(-1);
+    macdCrossUp = prev.MACD < prev.signal && last.MACD > last.signal;
+  }
+
+  if (macdSell.length >= 2) {
+    const prev = macdSell.at(-2);
+    const last = macdSell.at(-1);
+    macdCrossDown = prev.MACD > prev.signal && last.MACD < last.signal;
+  }
 
   return { rsi, percentB, macdCrossUp, macdCrossDown };
 }
 
 async function analyzeSymbol(symbol) {
   try {
-    const ohlcv = await exchange.fetchOHLCV(symbol, '15m', undefined, 100);
+    const ohlcv = await exchange.fetchOHLCV(symbol, '15m', undefined, 200);
     const indicators = calculateIndicators(ohlcv);
+    if (!indicators) throw new Error('بيانات غير كافية');
+
     const price = ohlcv.at(-1)[4];
     const s = state[symbol] || { inTrade: false };
 
     if (!s.inTrade) {
       if (indicators.rsi < 45 && indicators.percentB < 0.2 && indicators.macdCrossUp) {
         s.inTrade = true;
-        await sendTelegramMessage(`✅ <b>إشارة شراء</b>
-العملة: <b>${symbol}</b>
-السعر: <b>${price}</b>
-الوقت: ${new Date().toLocaleString()}`);
+        await sendTelegramMessage(`✅ <b>إشارة شراء</b>\nالعملة: <b>${symbol}</b>\nالسعر: <b>${price}</b>\nالوقت: ${new Date().toLocaleString()}`);
       }
     } else {
       if (indicators.macdCrossDown) {
         s.inTrade = false;
-        await sendTelegramMessage(`🔴 <b>إشارة بيع</b>
-العملة: <b>${symbol}</b>
-السعر: <b>${price}</b>
-الوقت: ${new Date().toLocaleString()}`);
+        await sendTelegramMessage(`🔴 <b>إشارة بيع</b>\nالعملة: <b>${symbol}</b>\nالسعر: <b>${price}</b>\nالوقت: ${new Date().toLocaleString()}`);
       }
     }
+
     state[symbol] = s;
     saveState();
   } catch (e) {
-    console.error(`خطأ في تحليل ${symbol}:`, e.message);
+    console.error(`⚠️ خطأ في تحليل ${symbol}:`, e.message);
   }
 }
 
