@@ -1,120 +1,99 @@
-import ccxt from 'ccxt';
+import express from 'express';
+import fs from 'fs-extra';
 import axios from 'axios';
+import ccxt from 'ccxt';
 import cron from 'node-cron';
-import { macd, rsi, bollingerbands } from 'technicalindicators';
-import fs from 'fs';
+import { RSI, BollingerBands, MACD } from 'technicalindicators';
 
-// إعدادات التليجرام
+const app = express();
+const PORT = process.env.PORT || 3000;
+
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
 const CHAT_ID = '1055739217';
 
-// ملفات التخزين
-const POSITIONS_FILE = './openPositions.json';
-const coins = JSON.parse(fs.readFileSync('./coins.json', 'utf-8'));
+const exchange = new ccxt.binance();
+const coins = JSON.parse(fs.readFileSync('./coins.json'));
+let state = fs.readJsonSync('./state.json', { throws: false }) || {};
 
-// تهيئة Binance وقراءة الصفقات المفتوحة
-const binance = new ccxt.binance();
-let openPositions = {};
-if (fs.existsSync(POSITIONS_FILE)) {
-  openPositions = JSON.parse(fs.readFileSync(POSITIONS_FILE, 'utf-8'));
-}
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-function savePositions() {
-  fs.writeFileSync(POSITIONS_FILE, JSON.stringify(openPositions, null, 2));
-}
-
-async function sendTelegramMessage(message) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
-  await axios.post(url, {
+async function sendTelegramMessage(msg) {
+  await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
     chat_id: CHAT_ID,
-    text: message,
+    text: msg,
     parse_mode: 'Markdown'
   });
 }
 
-async function analyzeSymbol(symbol) {
+function formatPercent(p) {
+  return \`\${(p >= 0 ? '+' : '')}\${(p * 100).toFixed(2)}%\`;
+}
+
+async function analyzeCoin(symbol) {
+  const market = symbol.replace('/', '');
   try {
-    const ohlcv = await binance.fetchOHLCV(symbol, '4h', undefined, 100);
+    const ohlcv = await exchange.fetchOHLCV(symbol, '15m', undefined, 150);
     const closes = ohlcv.map(c => c[4]);
-    const last = closes[closes.length - 1];
+    const time = new Date(ohlcv.at(-1)[0]).toLocaleString('ar-DZ');
+    const price = closes.at(-1);
 
-    // RSI & %B
-    const rsiVal = rsi({ values: closes, period: 14 }).slice(-1)[0];
-    const bb = bollingerbands({ period: 20, stdDev: 2, values: closes }).slice(-1)[0];
-    const percentB = (last - bb.lower) / (bb.upper - bb.lower);
+    const rsi = RSI.calculate({ values: closes, period: 14 }).at(-1);
+    const bb = BollingerBands.calculate({ values: closes, period: 20, stdDev: 2 }).at(-1);
+    const percentB = (price - bb.lower) / (bb.upper - bb.lower);
 
-    // MACD الشراء
-    const macdBuyHist = macd({
+    const macdBuy = MACD.calculate({
       values: closes,
       fastPeriod: 1,
-      slowPeriod: 50,
-      signalPeriod: 20,
+      slowPeriod: 10,
+      signalPeriod: 4,
       SimpleMAOscillator: false,
       SimpleMASignal: false
-    }).map(v => v.histogram);
-    const macdBuySignal = macdBuyHist.slice(-2);
+    });
 
-    // MACD البيع
-    const macdSellHist = macd({
+    const macdSell = MACD.calculate({
       values: closes,
       fastPeriod: 1,
       slowPeriod: 100,
       signalPeriod: 8,
       SimpleMAOscillator: false,
       SimpleMASignal: false
-    }).map(v => v.histogram);
-    const macdSellSignal = macdSellHist.slice(-2);
+    });
 
-    const hasBuySignal =
-      rsiVal < 45 &&
-      percentB < 0.4 &&
-      macdBuySignal[0] < 0 &&
-      macdBuySignal[1] > 0;
+    const macdBuyPrev = macdBuy.at(-2), macdBuyCurr = macdBuy.at(-1);
+    const macdSellPrev = macdSell.at(-2), macdSellCurr = macdSell.at(-1);
 
-    const hasSellSignal =
-      openPositions[symbol] &&
-      macdSellSignal[0] > 0 &&
-      macdSellSignal[1] < 0;
-
-    const time = new Date().toLocaleString('ar-DZ', { hour12: false });
-
-    if (hasBuySignal) {
-      if (!openPositions[symbol]) {
-        openPositions[symbol] = { buyPrice: last, time };
-        savePositions();
-        await sendTelegramMessage(`🟢 *إشارة شراء جديدة*
-
-📈 *${symbol}*
-💰 *السعر:* ${last}
-⏰ *الوقت:* ${time}`);
-      } else {
-        console.log(`[${symbol}] تم تجاهل شراء مكرر`);
-      }
+    if (!state[market] && rsi < 45 && percentB < 0.2 && macdBuyPrev.MACD < macdBuyPrev.signal && macdBuyCurr.MACD > macdBuyCurr.signal) {
+      state[market] = { buyPrice: price, time };
+      await sendTelegramMessage(\`✅ *إشارة شراء \${symbol}*\n🕒 \${time}\n💰 السعر: *\${price} USDT*\`);
+      console.log(\`✅ شراء \${symbol} عند \${price}\`);
     }
 
-    if (hasSellSignal) {
-      const buyPrice = openPositions[symbol].buyPrice;
-      const change = (((last - buyPrice) / buyPrice) * 100).toFixed(2);
-      delete openPositions[symbol];
-      savePositions();
-      await sendTelegramMessage(`🔴 *إشارة بيع*
-
-📉 *${symbol}*
-💰 *السعر:* ${last}
-📊 *الربح:* ${change}%
-⏰ *الوقت:* ${time}`);
+    if (state[market] && macdSellPrev.MACD > macdSellPrev.signal && macdSellCurr.MACD < macdSellCurr.signal) {
+      const buyPrice = state[market].buyPrice;
+      const profit = (price - buyPrice) / buyPrice;
+      await sendTelegramMessage(\`🔻 *إشارة بيع \${symbol}*\n🕒 \${time}\n💰 السعر: *\${price} USDT*\n📊 \${formatPercent(profit)} \${(profit >= 0) ? 'ربح' : 'خسارة'}\`);
+      delete state[market];
+      console.log(\`🔻 بيع \${symbol} عند \${price} بنسبة \${formatPercent(profit)}\`);
     }
   } catch (err) {
-    console.error(`⚠️ خطأ في تحليل ${symbol}:`, err.message);
+    console.log(\`⚠️ خطأ في \${symbol}: \${err.message}\`);
   }
 }
 
-async function runAnalysis() {
-  console.log(`[${new Date().toLocaleTimeString()}] ✅ بدء تحليل العملات`);
-  for (const symbol of coins) {
-    await analyzeSymbol(symbol);
+async function run() {
+  for (let symbol of coins) {
+    await analyzeCoin(symbol);
+    await sleep(1200);
   }
+  fs.writeJsonSync('./state.json', state, { spaces: 2 });
 }
 
-// تنفيذ التحليل كل دقيقتين (يمكن تغييره حسب الحاجة)
-cron.schedule('*/2 * * * *', runAnalysis);
+cron.schedule('*/2 * * * *', run);
+
+app.get('/', (req, res) => {
+  res.send('✅ البوت يعمل...');
+});
+
+app.listen(PORT, () => {
+  console.log(\`🚀 السيرفر يعمل على المنفذ \${PORT}\`);
+});
