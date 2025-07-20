@@ -34,8 +34,8 @@ function calculateIndicators(candles) {
   const highs = candles.map(c => c.high);
   const lows = candles.map(c => c.low);
 
-  const rsiPeriod = 14;
-  const bbPeriod = 20;
+  const rsiPeriod = 10;
+  const bbPeriod = 15;
   const bbMultiplier = 2;
 
   const gains = [];
