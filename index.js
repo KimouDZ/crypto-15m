@@ -71,8 +71,8 @@ const analyzeSymbol = async (symbol) => {
     const macdSell = technicalindicators.MACD.calculate({
       values: closes,
       fastPeriod: 1,
-      slowPeriod: 100,
-      signalPeriod: 8,
+      slowPeriod: 500,
+      signalPeriod: 2,
       SimpleMAOscillator: false,
       SimpleMASignal: false
     });
