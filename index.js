@@ -83,7 +83,7 @@ const analyzeSymbol = async (symbol) => {
     const prevMACD_Sell = macdSell[macdSell.length - 2];
 
     const buySignal = (
-      lastRSI < 45 &&
+      lastRSI < 40 &&
       percentB < 0.4 &&
       prevMACD_Buy.MACD < prevMACD_Buy.signal &&
       lastMACD_Buy.MACD > lastMACD_Buy.signal
@@ -91,6 +91,7 @@ const analyzeSymbol = async (symbol) => {
 
     const sellSignal = (
       state[symbol]?.hasPosition &&
+      lastRSI > 55 &&
       prevMACD_Sell.MACD > prevMACD_Sell.signal &&
       lastMACD_Sell.MACD < lastMACD_Sell.signal
     );
