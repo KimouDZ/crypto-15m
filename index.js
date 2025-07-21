@@ -104,7 +104,7 @@ const analyzeSymbol = async (symbol) => {
         entryPrice: price,
         entryTime: now
       };
-      await sendTelegramMessage(`📈 <b>إشارة شراء</b>\n\n🪙 العملة: <b>${symbol}</b>\n💰 السعر: <b>${price.toFixed(4)}</b>\n🕒 الوقت: <b>${now}</b>\n\n🔔 سيتم الانتظار لإشارة بيع...`);
+      await sendTelegramMessage(`🟢 <b>إشارة شراء</b>\n\n🪙 العملة: <b>${symbol}</b>\n💰 السعر: <b>${price.toFixed(4)}</b>\n🕒 الوقت: <b>${now}</b>\n\n🔔 سيتم الانتظار لإشارة بيع...`);
     }
 
     if (sellSignal) {
@@ -112,7 +112,7 @@ const analyzeSymbol = async (symbol) => {
       const entry = state[symbol];
       const profitPercent = ((price - entry.entryPrice) / entry.entryPrice) * 100;
 
-      await sendTelegramMessage(`📉 <b>إشارة بيع</b>\n\n🪙 العملة: <b>${symbol}</b>\n💰 سعر الشراء: <b>${entry.entryPrice.toFixed(4)}</b>\n🕒 وقت الشراء: <b>${entry.entryTime}</b>\n💸 سعر البيع: <b>${price.toFixed(4)}</b>\n📊 الربح/الخسارة: <b>${profitPercent.toFixed(2)}%</b>\n🕒 وقت البيع: <b>${now}</b>`);
+      await sendTelegramMessage(`🔴 <b>إشارة بيع</b>\n\n🪙 العملة: <b>${symbol}</b>\n💰 سعر الشراء: <b>${entry.entryPrice.toFixed(4)}</b>\n🕒 وقت الشراء: <b>${entry.entryTime}</b>\n💸 سعر البيع: <b>${price.toFixed(4)}</b>\n📊 الربح/الخسارة: <b>${profitPercent.toFixed(2)}%</b>\n🕒 وقت البيع: <b>${now}</b>`);
 
       state[symbol] = {
         hasPosition: false
