@@ -143,4 +143,6 @@ async function analyze() {
 cron.schedule('*/2 * * * *', async () => {
   console.log("جاري التحليل...");
 
-analyze();
+  analyze();
+});
+
