@@ -18,7 +18,7 @@ function percentB(closes, bb) {
   return (lastClose - lower) / (upper - lower);
 }
 
-async function getCandles(symbol) {
+async function getohlcv(symbol) {
   try {
     const ohlcv = await exchange.fetchOHLCV(symbol, '15m');
     
@@ -26,8 +26,8 @@ async function getCandles(symbol) {
       console.log(`❌ بيانات غير كافية لـ ${symbol}`);
       return;
     }
-    const closes = candles.map(c => c[4]);
-    const times = candles.map(c => c[0]);
+    const closes = ohlcv.map(c => c[4]);
+    const times = ohlcv.map(c => c[0]);
 
     const rsi = technicalindicators.RSI.calculate({ period: 14, values: closes });
     const bb = technicalindicators.BollingerBands.calculate({ period: 20, stdDev: 2, values: closes });
@@ -60,7 +60,7 @@ function sendTelegramMessage(message) {
 }
 
 async function analyze(symbol) {
-  const data = await getCandles(symbol);
+  const data = await getohlcv(symbol);
   if (!data) return;
 
   const { time, close: price, rsi, percentB, macdBuy, macdBuyPrev, macdSell, macdSellPrev } = data;
