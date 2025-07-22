@@ -99,8 +99,10 @@ const analyzeSymbol = async (symbol) => {
     const now = new Date().toLocaleString('ar-DZ', { timeZone: 'Africa/Algiers' });
 
     if (buySignal && !state[symbol]?.hasPosition) {
-      // ✅ لا ترسل التنبيه إذا أُرسل بنفس الوقت مسبقًا
-      if (state[symbol]?.lastBuyMACDTime === now) return;
+      if (state[symbol]?.lastBuyMACDTime === now) {
+        console.log(`⏸️ تم تجاهل إشارة شراء مكررة لـ ${symbol} في ${now}`);
+        return;
+      }
 
       const price = closes[closes.length - 1];
       state[symbol] = {
@@ -113,8 +115,10 @@ const analyzeSymbol = async (symbol) => {
     }
 
     if (sellSignal) {
-      // ✅ لا ترسل التنبيه إذا أُرسل بنفس الوقت مسبقًا
-      if (state[symbol]?.lastSellMACDTime === now) return;
+      if (state[symbol]?.lastSellMACDTime === now) {
+        console.log(`⏸️ تم تجاهل إشارة بيع مكررة لـ ${symbol} في ${now}`);
+        return;
+      }
 
       const price = closes[closes.length - 1];
       const entry = state[symbol];
@@ -132,7 +136,7 @@ const analyzeSymbol = async (symbol) => {
   }
 };
 
-// ✅ قفل لحماية runBot من التكرار
+// ✅ قفل لمنع تكرار التشغيل
 let isRunning = false;
 
 const runBot = async () => {
