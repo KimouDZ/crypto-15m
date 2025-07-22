@@ -101,3 +101,5 @@ const analyzeSymbol = async (symbol) => {
     console.error(`⚠️ خطأ في تحليل ${symbol}: ${err.message}`);
   }
 };
+// تشغيل كل دقيقتين
+cron.schedule('*/2 * * * *', runBot);
