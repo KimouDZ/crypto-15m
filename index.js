@@ -4,8 +4,8 @@ import cron from 'node-cron';
 import ccxt from 'ccxt';
 import { RSI, BollingerBands, MACD } from 'technicalindicators';
 
-const TELEGRAM_TOKEN = 'YOUR_TELEGRAM_TOKEN';
-const CHAT_ID = 'YOUR_CHAT_ID';
+const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
+const CHAT_ID = '1055739217';
 const exchange = new ccxt.binance();
 
 // قراءة العملات من ملف coins.json
