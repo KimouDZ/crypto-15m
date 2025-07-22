@@ -1,16 +1,15 @@
 {
   "name": "trading-bot",
   "version": "1.0.0",
-  "description": "Telegram Trading Signals Bot",
   "type": "module",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "axios": "^1.6.8",
-    "ccxt": "^4.1.99",
-    "node-cron": "^3.0.3",
-    "technicalindicators": "^3.0.3"
+    "axios": "^1.6.0",
+    "ccxt": "^4.1.77",
+    "technicalindicators": "^3.0.1",
+    "node-cron": "^3.0.2"
   }
 }
