@@ -20,11 +20,12 @@ function percentB(closes, bb) {
 
 async function getCandles(symbol) {
   try {
-    const candles = await exchange.fetchOHLCV(symbol, '15m', undefined, 150);
+    const ohlcv = await exchange.fetchOHLCV(symbol, '15m');
+    
     if (!ohlcv || ohlcv.length < 50) {
-    console.log(`❌ بيانات غير كافية لـ ${symbol}`);
-    return; // ← بدل continue بـ return
-  }
+      console.log(`❌ بيانات غير كافية لـ ${symbol}`);
+      return;
+    }
     const closes = candles.map(c => c[4]);
     const times = candles.map(c => c[0]);
 
