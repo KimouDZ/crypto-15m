@@ -1,5 +1,5 @@
 {
-  "name": "trading-bot",
+  "name": "telegram-alert-bot",
   "version": "1.0.0",
   "type": "module",
   "main": "index.js",
@@ -8,8 +8,8 @@
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "ccxt": "^4.1.77",
-    "technicalindicators": "^3.0.1",
-    "node-cron": "^3.0.2"
+    "ccxt": "^4.0.0",
+    "node-cron": "^3.0.2",
+    "technicalindicators": "^3.0.0"
   }
 }
