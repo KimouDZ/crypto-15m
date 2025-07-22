@@ -140,6 +140,7 @@ async function analyze() {
   }
 }
 
-cron.schedule('*/2 * * * *', analyze);
+cron.schedule('*/2 * * * *', async () => {
+  console.log(`[${new Date().toLocaleString()}] ✅ بدء التحليل...`);
 
 analyze();
