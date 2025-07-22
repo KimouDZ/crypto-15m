@@ -4,8 +4,8 @@ import ccxt from 'ccxt';
 import technicalindicators from 'technicalindicators';
 import cron from 'node-cron';
 
-const TELEGRAM_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN';
-const CHAT_ID = 'YOUR_TELEGRAM_CHAT_ID';
+const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
+const CHAT_ID = '1055739217';
 const exchange = new ccxt.binance();
 
 let lastSignals = {};
