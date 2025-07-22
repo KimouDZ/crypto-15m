@@ -141,6 +141,6 @@ async function analyze() {
 }
 
 cron.schedule('*/2 * * * *', async () => {
-  console.log(`[${new Date().toLocaleString()}] ✅ بدء التحليل...`);
+  console.log("جاري التحليل...");
 
 analyze();
