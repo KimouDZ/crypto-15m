@@ -4,7 +4,7 @@ import ccxt from 'ccxt';
 import cron from 'node-cron';
 import technicalindicators from 'technicalindicators';
 
-const TELEGRAM_TOKEN = 'توكن_البوت';
+const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
 const CHAT_ID = '1055739217';
 const exchange = new ccxt.binance();
 
