@@ -2,119 +2,124 @@ import fs from 'fs';
 import axios from 'axios';
 import ccxt from 'ccxt';
 import technicalindicators from 'technicalindicators';
-import cron from 'node-cron';
 
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
 const CHAT_ID = '1055739217';
 const exchange = new ccxt.binance();
+const SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"];
 
-let lastSignals = {};
-let activeTrades = {};
+const state = {};
 
-const indicatorsConfig = {
-  rsiPeriod: 14,
-  bbPeriod: 20,
-  bbStdDev: 2,
-  macdBuy: { fast: 1, slow: 2, signal: 2 },
-  macdSell: { fast: 1, slow: 10, signal: 2 },
-  supportDrop: 0.015
-};
-
-async function fetchOHLCV(symbol) {
-  try {
-    const data = await exchange.fetchOHLCV(symbol, '4h', undefined, 100);
-    return data.map(d => ({ time: d[0], open: d[1], high: d[2], low: d[3], close: d[4], volume: d[5] }));
-  } catch (error) {
-    return [];
-  }
+function log(msg) {
+  const time = new Date().toLocaleString("en-GB", { timeZone: "UTC" });
+  console.log(`[${time}] ${msg}`);
 }
 
-function calculateIndicators(data) {
-  const closes = data.map(d => d.close);
-  const highs = data.map(d => d.high);
-  const lows = data.map(d => d.low);
-
-  const rsi = technicalindicators.rsi({ values: closes, period: indicatorsConfig.rsiPeriod });
-  const bb = technicalindicators.bollingerbands({ period: indicatorsConfig.bbPeriod, values: closes, stdDev: indicatorsConfig.bbStdDev });
-  const macdBuy = technicalindicators.macd({ values: closes, fastPeriod: indicatorsConfig.macdBuy.fast, slowPeriod: indicatorsConfig.macdBuy.slow, signalPeriod: indicatorsConfig.macdBuy.signal, SimpleMAOscillator: false, SimpleMASignal: false });
-  const macdSell = technicalindicators.macd({ values: closes, fastPeriod: indicatorsConfig.macdSell.fast, slowPeriod: indicatorsConfig.macdSell.slow, signalPeriod: indicatorsConfig.macdSell.signal, SimpleMAOscillator: false, SimpleMASignal: false });
-
-  return { rsi, bb, macdBuy, macdSell };
+async function getOHLCV(symbol) {
+  const ohlcv = await exchange.fetchOHLCV(symbol, '4h', undefined, 100);
+  const close = ohlcv.map(c => c[4]);
+  const high = ohlcv.map(c => c[2]);
+  const low = ohlcv.map(c => c[3]);
+  return { close, high, low, currentPrice: close[close.length - 1] };
 }
 
-function checkBuyCondition(i, rsi, bb, macd) {
-  return rsi[i] < 40 && bb[i].percentB < 0.4 && macd[i - 1]?.MACD < macd[i - 1]?.signal && macd[i]?.MACD > macd[i]?.signal;
+function calculateIndicators(close, high, low) {
+  const rsi = technicalindicators.RSI.calculate({ values: close, period: 14 });
+  const bb = technicalindicators.BollingerBands.calculate({ period: 20, values: close, stdDev: 2 });
+  const macd = technicalindicators.MACD.calculate({ values: close, fastPeriod: 1, slowPeriod: 2, signalPeriod: 2, SimpleMAOscillator: false, SimpleMASignal: false });
+  return { rsi, bb, macd };
 }
 
-function checkSellCondition(i, rsi, macd) {
-  return rsi[i] > 55 && macd[i - 1]?.MACD > macd[i - 1]?.signal && macd[i]?.MACD < macd[i]?.signal;
+function checkBuyConditions(rsi, bb, macd) {
+  const i = rsi.length - 1;
+  const lastMACD = macd[macd.length - 1];
+  return rsi[i] < 40 && bb[bb.length - 1].percentB < 0.4 && lastMACD.MACD > lastMACD.signal;
+}
+
+function checkSellConditions(rsi, macd) {
+  const i = rsi.length - 1;
+  const lastMACD = macd[macd.length - 1];
+  return rsi[i] > 55 && lastMACD.MACD < lastMACD.signal;
 }
 
 function formatDate(timestamp) {
-  const d = new Date(timestamp);
-  return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()} - ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  const date = new Date(timestamp);
+  return date.toLocaleString('fr-FR', { hour12: false }).replace(',', ' -');
 }
 
-async function sendTelegram(message) {
+async function sendTelegramMessage(text) {
   await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
     chat_id: CHAT_ID,
-    text: message,
+    text,
     parse_mode: 'HTML'
   });
 }
 
 async function analyzeSymbol(symbol) {
-  const data = await fetchOHLCV(symbol);
-  if (data.length < 50) return;
+  try {
+    const { close, high, low, currentPrice } = await getOHLCV(symbol);
+    const { rsi, bb, macd } = calculateIndicators(close, high, low);
+    const key = symbol.replace('/', '');
 
-  const { rsi, bb, macdBuy, macdSell } = calculateIndicators(data);
-  const i = rsi.length - 1;
-  const price = data[data.length - 1].close;
-  const time = formatDate(data[data.length - 1].time);
+    if (!state[key]) state[key] = { inTrade: false, buyPrice: 0, supports: [], buyTime: null };
+    const coin = state[key];
 
-  if (!activeTrades[symbol]) {
-    if (checkBuyCondition(i, rsi, bb, macdBuy)) {
-      activeTrades[symbol] = { base: { price, time }, supports: [] };
-      await sendTelegram(`📈 <b>شراء</b>
-عملة: <b>${symbol}</b>
-السعر: <b>${price.toFixed(4)}</b>
-الوقت: <b>${time}</b>`);
+    // شراء أساسي
+    if (!coin.inTrade && checkBuyConditions(rsi, bb, macd)) {
+      coin.inTrade = true;
+      coin.buyPrice = currentPrice;
+      coin.supports = [];
+      coin.buyTime = new Date();
+      log(`🔵 شراء ${symbol} عند ${currentPrice}`);
+      await sendTelegramMessage(`🔵 <b>شراء ${symbol}</b>
+📈 السعر: <b>${currentPrice}$</b>
+⏰ التاريخ: <b>${formatDate(coin.buyTime)}</b>`);
+      return;
     }
-  } else {
-    const trade = activeTrades[symbol];
-    const lastSupport = trade.supports[trade.supports.length - 1]?.price || trade.base.price;
-    if (price <= lastSupport * (1 - indicatorsConfig.supportDrop) && checkBuyCondition(i, rsi, bb, macdBuy)) {
-      trade.supports.push({ price, time });
-      await sendTelegram(`🧱 <b>تدعيم</b>
-عملة: <b>${symbol}</b>
-السعر: <b>${price.toFixed(4)}</b>
-الوقت: <b>${time}</b>`);
-    } else if (checkSellCondition(i, rsi, macdSell)) {
-      const allPrices = [trade.base.price, ...trade.supports.map(s => s.price)];
-      const avgBuy = allPrices.reduce((a, b) => a + b, 0) / allPrices.length;
-      const profit = ((price - avgBuy) / avgBuy) * 100;
 
-      const supportDetails = trade.supports.map((s, idx) => `تدعيم ${idx + 1}: <b>${s.price.toFixed(4)}</b> (${s.time})`).join('\n');
-
-      await sendTelegram(`💰 <b>بيع</b>
-عملة: <b>${symbol}</b>
-السعر: <b>${price.toFixed(4)}</b>
-الوقت: <b>${time}</b>
-— — — — —
-<b>الشراء:</b> <b>${trade.base.price.toFixed(4)}</b> (${trade.base.time})
-${supportDetails}
-<b>الربح:</b> <b>${profit.toFixed(2)}%</b>`);
-
-      delete activeTrades[symbol];
+    // دعم متعدد
+    if (coin.inTrade) {
+      const lastSupportPrice = coin.supports.length ? coin.supports[coin.supports.length - 1].price : coin.buyPrice;
+      const dropPercent = ((lastSupportPrice - currentPrice) / lastSupportPrice) * 100;
+      if (dropPercent >= 1.5 && checkBuyConditions(rsi, bb, macd)) {
+        coin.supports.push({ price: currentPrice, time: new Date() });
+        log(`🟡 تدعيم ${symbol} عند ${currentPrice}`);
+        await sendTelegramMessage(`🟡 <b>تدعيم ${symbol}</b>
+📉 السعر: <b>${currentPrice}$</b>
+⏰ التاريخ: <b>${formatDate(Date.now())}</b>`);
+        return;
+      }
     }
+
+    // بيع
+    if (coin.inTrade && checkSellConditions(rsi, macd)) {
+      const totalPrices = [coin.buyPrice, ...coin.supports.map(s => s.price)];
+      const avgPrice = totalPrices.reduce((a, b) => a + b, 0) / totalPrices.length;
+      const pnl = (((currentPrice - avgPrice) / avgPrice) * 100).toFixed(2);
+      let message = `🔴 <b>بيع ${symbol}</b>\n`;
+      message += `💵 السعر الحالي: <b>${currentPrice}$</b>\n`;
+      message += `📆 شراء: <b>${formatDate(coin.buyTime)}</b> بسعر <b>${coin.buyPrice}$</b>\n`;
+      if (coin.supports.length > 0) {
+        coin.supports.forEach((s, i) => {
+          message += `📍 دعم ${i + 1}: <b>${s.price}$</b> بتاريخ <b>${formatDate(s.time)}</b>\n`;
+        });
+      }
+      message += `📊 متوسط السعر: <b>${avgPrice.toFixed(4)}$</b>\n`;
+      message += `📈 الربح/الخسارة: <b>${pnl}%</b>`;
+      log(`🔴 بيع ${symbol} عند ${currentPrice} | PnL: ${pnl}%`);
+      await sendTelegramMessage(message);
+      coin.inTrade = false;
+      coin.supports = [];
+    }
+  } catch (err) {
+    log(`خطأ في ${symbol}: ${err.message}`);
   }
 }
 
-async function run() {
-  const symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']; // add more symbols as needed
-  for (const symbol of symbols) {
+async function runBot() {
+  for (const symbol of SYMBOLS) {
     await analyzeSymbol(symbol);
   }
 }
 
-cron.schedule('*/2 * * * *', run);
+setInterval(runBot, 2 * 60 * 1000); // كل دقيقتين
