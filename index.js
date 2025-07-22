@@ -1,41 +1,4 @@
-import fs from 'fs';
-import axios from 'axios';
-import cron from 'node-cron';
-import ccxt from 'ccxt';
-import technicalindicators from 'technicalindicators';
-
-const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
-const CHAT_ID = '1055739217';
-
-const exchange = new ccxt.binance();
-
-// ✅ إزالة التكرار من العملات
-const coinsRaw = JSON.parse(fs.readFileSync('./coins.json'));
-const coins = [...new Set(coinsRaw)];
-
-let state = {};
-
-const loadState = () => {
-  if (fs.existsSync('./state.json')) {
-    state = JSON.parse(fs.readFileSync('./state.json'));
-  }
-};
-
-const saveState = () => {
-  fs.writeFileSync('./state.json', JSON.stringify(state, null, 2));
-};
-
-const sendTelegramMessage = async (message) => {
-  try {
-    await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-      chat_id: CHAT_ID,
-      text: message,
-      parse_mode: 'HTML'
-    });
-  } catch (err) {
-    console.error('❌ فشل إرسال الرسالة:', err.message);
-  }
-};
+// ... (نفس الاستيرادات والتهيئة السابقة)
 
 const analyzeSymbol = async (symbol) => {
   try {
@@ -96,11 +59,13 @@ const analyzeSymbol = async (symbol) => {
       lastMACD_Sell.MACD < lastMACD_Sell.signal
     );
 
-    const now = new Date().toLocaleString('ar-DZ', { timeZone: 'Africa/Algiers' });
+    // ✅ احصل على "وقت الشمعة" بدقة (آخر شمعة)
+    const lastCandleTime = ohlcv[ohlcv.length - 1][0]; // timestamp in ms
+    const nowFormatted = new Date().toLocaleString('ar-DZ', { timeZone: 'Africa/Algiers' });
 
     if (buySignal && !state[symbol]?.hasPosition) {
-      if (state[symbol]?.lastBuyMACDTime === now) {
-        console.log(`⏸️ تم تجاهل إشارة شراء مكررة لـ ${symbol} في ${now}`);
+      if (state[symbol]?.lastBuyCandle === lastCandleTime) {
+        console.log(`⏸️ تم تجاهل إشارة شراء مكررة لـ ${symbol} في نفس الشمعة`);
         return;
       }
 
@@ -108,15 +73,16 @@ const analyzeSymbol = async (symbol) => {
       state[symbol] = {
         hasPosition: true,
         entryPrice: price,
-        entryTime: now,
-        lastBuyMACDTime: now
+        entryTime: nowFormatted,
+        lastBuyCandle: lastCandleTime
       };
-      await sendTelegramMessage(`🟢 <b>إشارة شراء</b>\n\n🪙 العملة: <b>${symbol}</b>\n💰 السعر: <b>${price.toFixed(4)}</b>\n🕒 الوقت: <b>${now}</b>\n\n🔔 سيتم الانتظار لإشارة بيع...`);
+
+      await sendTelegramMessage(`🟢 <b>إشارة شراء</b>\n\n🪙 العملة: <b>${symbol}</b>\n💰 السعر: <b>${price.toFixed(4)}</b>\n🕒 الوقت: <b>${nowFormatted}</b>\n\n🔔 سيتم الانتظار لإشارة بيع...`);
     }
 
     if (sellSignal) {
-      if (state[symbol]?.lastSellMACDTime === now) {
-        console.log(`⏸️ تم تجاهل إشارة بيع مكررة لـ ${symbol} في ${now}`);
+      if (state[symbol]?.lastSellCandle === lastCandleTime) {
+        console.log(`⏸️ تم تجاهل إشارة بيع مكررة لـ ${symbol} في نفس الشمعة`);
         return;
       }
 
@@ -124,35 +90,14 @@ const analyzeSymbol = async (symbol) => {
       const entry = state[symbol];
       const profitPercent = ((price - entry.entryPrice) / entry.entryPrice) * 100;
 
-      await sendTelegramMessage(`🔴 <b>إشارة بيع</b>\n\n🪙 العملة: <b>${symbol}</b>\n💰 سعر الشراء: <b>${entry.entryPrice.toFixed(4)}</b>\n🕒 وقت الشراء: <b>${entry.entryTime}</b>\n💸 سعر البيع: <b>${price.toFixed(4)}</b>\n📊 الربح/الخسارة: <b>${profitPercent.toFixed(2)}%</b>\n🕒 وقت البيع: <b>${now}</b>`);
+      await sendTelegramMessage(`🔴 <b>إشارة بيع</b>\n\n🪙 العملة: <b>${symbol}</b>\n💰 سعر الشراء: <b>${entry.entryPrice.toFixed(4)}</b>\n🕒 وقت الشراء: <b>${entry.entryTime}</b>\n💸 سعر البيع: <b>${price.toFixed(4)}</b>\n📊 الربح/الخسارة: <b>${profitPercent.toFixed(2)}%</b>\n🕒 وقت البيع: <b>${nowFormatted}</b>`);
 
       state[symbol] = {
         hasPosition: false,
-        lastSellMACDTime: now
+        lastSellCandle: lastCandleTime
       };
     }
   } catch (err) {
     console.error(`⚠️ خطأ في تحليل ${symbol}: ${err.message}`);
   }
 };
-
-// ✅ قفل لمنع تكرار التشغيل
-let isRunning = false;
-
-const runBot = async () => {
-  if (isRunning) return;
-  isRunning = true;
-
-  console.log('✅ بدء التحليل...');
-  for (const symbol of coins) {
-    await analyzeSymbol(symbol);
-  }
-  saveState();
-
-  isRunning = false;
-};
-
-loadState();
-
-// تشغيل كل دقيقتين
-cron.schedule('*/2 * * * *', runBot);
