@@ -12,6 +12,12 @@ const coins = JSON.parse(fs.readFileSync('./coins.json'));
 const stateFile = './state.json';
 let state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile)) : {};
 
+// إعدادات الشروط
+const rsiBuyLimit = 40;
+const percentBBBuyLimit = 0.4;
+const rsiSellLimit = 55;
+const supportDropThreshold = 0.985; // نزول 1.5% = 98.5%
+
 function log(message) {
   const timestamp = new Date().toLocaleString('en-GB', { timeZone: 'UTC' });
   console.log(`[${timestamp}] ${message}`);
@@ -54,16 +60,14 @@ async function analyzeSymbol(symbol) {
   try {
     const ohlcv = await exchange.fetchOHLCV(symbol, '4h');
     const closes = ohlcv.map(c => c[4]);
-    const highs = ohlcv.map(c => c[2]);
-    const lows = ohlcv.map(c => c[3]);
 
     if (closes.length < 50) return;
 
     const lastPrice = closes.at(-1);
     const rsi = technicalindicators.RSI.calculate({ period: 14, values: closes });
     const bb = technicalindicators.BollingerBands.calculate({ period: 20, stdDev: 2, values: closes });
-    const macdBuy = calculateMACD(closes, 1, 5, 30);
-    const macdSell = calculateMACD(closes, 2, 10, 15);
+    const macdBuy = calculateMACD(closes, 1, 2, 2);
+    const macdSell = calculateMACD(closes, 1, 10, 2);
 
     const prevMACD = macdBuy.at(-2);
     const currMACD = macdBuy.at(-1);
@@ -72,17 +76,19 @@ async function analyzeSymbol(symbol) {
     const currSellMACD = macdSell.at(-1);
 
     const bbLast = bb.at(-1);
-    const percentB = (closes.at(-1) - bbLast.lower) / (bbLast.upper - bbLast.lower);
-
+    const percentB = (lastPrice - bbLast.lower) / (bbLast.upper - bbLast.lower);
     const rsiVal = rsi.at(-1);
 
     if (!state[symbol]) {
       state[symbol] = { inTrade: false, entries: [] };
     }
 
+    // ✅ شراء
     if (!state[symbol].inTrade) {
-      const macdCrossUp = prevMACD && currMACD && prevMACD.MACD < prevMACD.signal && currMACD.MACD > currMACD.signal;
-      if (rsiVal < 25 && percentB < 0 && macdCrossUp) {
+      const macdCrossUp = prevMACD && currMACD &&
+        prevMACD.MACD < prevMACD.signal && currMACD.MACD > currMACD.signal;
+
+      if (rsiVal < rsiBuyLimit && percentB < percentBBBuyLimit && macdCrossUp) {
         state[symbol].inTrade = true;
         state[symbol].entries.push({ price: lastPrice, time: new Date().toISOString() });
         sendTelegramMessage(`✅ <b>إشارة شراء (${symbol})</b>\nالسعر: ${lastPrice}\nالوقت: ${formatDate(new Date())}`);
@@ -90,21 +96,28 @@ async function analyzeSymbol(symbol) {
     } else {
       const lastEntry = state[symbol].entries.at(-1);
       const lastEntryPrice = lastEntry.price;
-      const priceDrop = (lastPrice < lastEntryPrice * 0.99);
-      const macdCrossUp = prevMACD && currMACD && prevMACD.MACD < prevMACD.signal && currMACD.MACD > currMACD.signal;
+      const priceDrop = lastPrice < lastEntryPrice * supportDropThreshold;
 
-      if (priceDrop && rsiVal < 25 && percentB < 0 && macdCrossUp) {
+      const macdCrossUp = prevMACD && currMACD &&
+        prevMACD.MACD < prevMACD.signal && currMACD.MACD > currMACD.signal;
+
+      // 🟡 تدعيم
+      if (priceDrop && rsiVal < rsiBuyLimit && percentB < percentBBBuyLimit && macdCrossUp) {
         state[symbol].entries.push({ price: lastPrice, time: new Date().toISOString() });
         sendTelegramMessage(`📉 <b>دعم إضافي (${symbol})</b>\nالسعر: ${lastPrice}\nالوقت: ${formatDate(new Date())}`);
       }
 
-      const sellCross = prevSellMACD && currSellMACD && prevSellMACD.MACD > prevSellMACD.signal && currSellMACD.MACD < currSellMACD.signal;
-      if (rsiVal > 50 && sellCross) {
+      // 🔴 بيع
+      const sellCross = prevSellMACD && currSellMACD &&
+        prevSellMACD.MACD > prevSellMACD.signal && currSellMACD.MACD < currSellMACD.signal;
+
+      if (rsiVal > rsiSellLimit && sellCross) {
         const avgPrice = state[symbol].entries.reduce((sum, e) => sum + e.price, 0) / state[symbol].entries.length;
         const profit = ((lastPrice - avgPrice) / avgPrice * 100).toFixed(2);
         const entryDetails = state[symbol].entries.map((e, i) => `دعم ${i + 1}: ${formatDate(e.time)}`).join('\n');
 
         sendTelegramMessage(`🚨 <b>إشارة بيع (${symbol})</b>\nالسعر: ${lastPrice}\n${entryDetails}\n⏳ عدد الدعمات: ${state[symbol].entries.length}\n📊 متوسط السعر: ${avgPrice.toFixed(4)}\n💰 نسبة الربح/الخسارة: ${profit}%`);
+
         state[symbol] = { inTrade: false, entries: [] };
       }
     }
