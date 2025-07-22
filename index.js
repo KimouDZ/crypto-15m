@@ -4,8 +4,8 @@ import cron from 'node-cron';
 import ccxt from 'ccxt';
 import technicalindicators from 'technicalindicators';
 
-const TELEGRAM_TOKEN = 'ضع_التوكن_هنا';
-const CHAT_ID = 'ضع_ChatID_هنا';
+const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
+const CHAT_ID = '1055739217';
 const exchange = new ccxt.binance();
 const coins = JSON.parse(fs.readFileSync('./coins.json'));
 const stateFile = './state.json';
