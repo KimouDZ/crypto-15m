@@ -1,5 +1,5 @@
 {
-  "name": "railway-trading-bot",
+  "name": "crypto-signal-bot",
   "version": "1.0.0",
   "type": "module",
   "main": "index.js",
@@ -8,9 +8,8 @@
   },
   "dependencies": {
     "axios": "^1.6.8",
-    "ccxt": "^4.1.99",
-    "technicalindicators": "^3.1.0",
+    "ccxt": "^4.1.89",
+    "technicalindicators": "^3.1.1",
     "node-cron": "^3.0.3"
   }
 }
-
