@@ -2,142 +2,109 @@ import fs from 'fs';
 import axios from 'axios';
 import cron from 'node-cron';
 import ccxt from 'ccxt';
-import technicalindicators from 'technicalindicators';
+import { RSI, MACD, BollingerBands } from 'technicalindicators';
 
+// إعدادات تيليغرام
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
 const CHAT_ID = '1055739217';
-
 const exchange = new ccxt.binance();
+
+// تحميل العملات من ملف coins.json
 const coins = JSON.parse(fs.readFileSync('./coins.json'));
-
-let state = {};
 const stateFile = './state.json';
+let state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile)) : {};
 
-// تحميل الحالة السابقة من الملف (لمنع التكرار)
-if (fs.existsSync(stateFile)) {
-  state = JSON.parse(fs.readFileSync(stateFile));
-}
-
-function saveState() {
-  fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
-}
-
-function sendTelegramMessage(message) {
-  axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+async function sendTelegramMessage(message) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+  await axios.post(url, {
     chat_id: CHAT_ID,
     text: message,
-    parse_mode: 'Markdown',
-  }).catch(err => console.error("Telegram Error:", err.message));
+    parse_mode: 'Markdown'
+  });
 }
 
-async function analyzeCoin(symbol) {
-  try {
-    const market = await exchange.loadMarkets();
-    if (!market[symbol]) {
-      console.log(`❌ العملة غير موجودة في Binance: ${symbol}`);
-      return;
-    }
+function calculateIndicators(closes) {
+  const rsi = RSI.calculate({ values: closes, period: 14 });
+  const bb = BollingerBands.calculate({ period: 20, stdDev: 2, values: closes });
+  return { rsi, bb };
+}
 
-    const ohlcv = await exchange.fetchOHLCV(symbol, '4h');
-    if (!ohlcv || ohlcv.length < 100) {
-      console.log(`❌ بيانات غير كافية لـ ${symbol}`);
-      return;
-    }
-
-    const closes = ohlcv.map(c => c[4]);
-
-    if (closes.length < 100) {
-      console.log(`❌ بيانات غير كافية لحساب المؤشرات لـ ${symbol}`);
-      return;
-    }
-
-    const rsi = technicalindicators.RSI.calculate({ period: 14, values: closes });
-    const bb = technicalindicators.BollingerBands.calculate({
-      period: 20,
-      stdDev: 2,
-      values: closes,
-    });
-
-    const macdBuy = technicalindicators.MACD.calculate({
-      values: closes,
-      fastPeriod: 1,
-      slowPeriod: 5,
-      signalPeriod: 30,
-      SimpleMAOscillator: false,
-      SimpleMASignal: false,
-    });
-
-    const macdSell = technicalindicators.MACD.calculate({
-      values: closes,
-      fastPeriod: 2,
-      slowPeriod: 10,
-      signalPeriod: 15,
-      SimpleMAOscillator: false,
-      SimpleMASignal: false,
-    });
-
-    if (
-      rsi.length === 0 ||
-      bb.length === 0 ||
-      macdBuy.length < 2 ||
-      macdSell.length < 2
-    ) {
-      console.log(`❌ المؤشرات غير مكتملة لـ ${symbol}`);
-      return;
-    }
-
-    const lastRSI = rsi[rsi.length - 1];
-    const lastBB = bb[bb.length - 1];
-    const price = closes[closes.length - 1];
-
-    const prevMACD = macdBuy[macdBuy.length - 2];
-    const lastMACD = macdBuy[macdBuy.length - 1];
-
-    const prevMACDSell = macdSell[macdSell.length - 2];
-    const lastMACDSell = macdSell[macdSell.length - 1];
-
-    const inTrade = state[symbol]?.inTrade || false;
-    const entryPrice = state[symbol]?.entryPrice || 0;
-
-    // ✅ شروط الشراء
-    const buySignal =
-      !inTrade &&
-      lastRSI < 25 &&
-      lastBB.percentB < 0 &&
-      prevMACD.MACD < prevMACD.signal &&
-      lastMACD.MACD > lastMACD.signal;
-
-    // ✅ شروط البيع
-    const sellSignal =
-      inTrade &&
-      lastRSI > 50 &&
-      prevMACDSell.MACD > prevMACDSell.signal &&
-      lastMACDSell.MACD < lastMACDSell.signal;
-
-    if (buySignal) {
-      state[symbol] = { inTrade: true, entryPrice: price };
-      saveState();
-      const msg = `📈 *إشارة شراء*\nالعملة: *${symbol}*\nالسعر: *${price.toFixed(4)}*\nالوقت: ${new Date().toLocaleString()}`;
-      sendTelegramMessage(msg);
-    }
-
-    if (sellSignal) {
-      const profit = ((price - entryPrice) / entryPrice) * 100;
-      state[symbol] = { inTrade: false, entryPrice: 0 };
-      saveState();
-      const msg = `📉 *إشارة بيع*\nالعملة: *${symbol}*\nالشراء: *${entryPrice.toFixed(4)}*\nالبيع: *${price.toFixed(4)}*\nالربح/الخسارة: *${profit.toFixed(2)}%*\n🕒 ${new Date().toLocaleString()}`;
-      sendTelegramMessage(msg);
-    }
-
-  } catch (err) {
-    console.log(`❌ خطأ في ${symbol}: ${err.message}`);
-  }
+function calculateMACD(closes, fast, slow, signal) {
+  return MACD.calculate({
+    values: closes,
+    fastPeriod: fast,
+    slowPeriod: slow,
+    signalPeriod: signal,
+    SimpleMAOscillator: false,
+    SimpleMASignal: false
+  });
 }
 
 async function runBot() {
   for (const symbol of coins) {
-    await analyzeCoin(symbol);
+    try {
+      const ohlcv = await exchange.fetchOHLCV(symbol, '4h');
+
+      if (!ohlcv || ohlcv.length < 100) {
+        console.log(`❌ لا توجد بيانات كافية لـ ${symbol}`);
+        continue;
+      }
+
+      const closes = ohlcv.map(c => c[4]);
+      const lastClose = closes[closes.length - 1];
+      const timestamp = new Date(ohlcv[ohlcv.length - 1][0]).toLocaleString('ar-DZ');
+
+      const { rsi, bb } = calculateIndicators(closes);
+      const macdBuy = calculateMACD(closes, 1, 5, 30);
+      const macdSell = calculateMACD(closes, 2, 10, 15);
+
+      const lastRSI = rsi[rsi.length - 1];
+      const lastBB = bb[bb.length - 1];
+      const lastMACD = macdBuy[macdBuy.length - 1];
+      const prevMACD = macdBuy[macdBuy.length - 2];
+
+      const lastMACD_sell = macdSell[macdSell.length - 1];
+      const prevMACD_sell = macdSell[macdSell.length - 2];
+
+      const coin = symbol.replace('/USDT', '');
+
+      // شروط الشراء
+      if (
+        lastRSI < 25 &&
+        lastBB &&
+        (lastClose < lastBB.lower) &&
+        prevMACD.MACD < prevMACD.signal &&
+        lastMACD.MACD > lastMACD.signal &&
+        !state[coin]
+      ) {
+        const msg = `🟢 *إشارة شراء*\nالعملة: *${symbol}*\nالسعر: *${lastClose}*\nالوقت: *${timestamp}*`;
+        await sendTelegramMessage(msg);
+        state[coin] = { boughtAt: lastClose, time: timestamp };
+        fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+        console.log(`✅ تم إرسال تنبيه شراء لـ ${symbol}`);
+      }
+
+      // شروط البيع
+      else if (
+        state[coin] &&
+        lastRSI > 50 &&
+        prevMACD_sell.MACD > prevMACD_sell.signal &&
+        lastMACD_sell.MACD < lastMACD_sell.signal
+      ) {
+        const buyPrice = state[coin].boughtAt;
+        const profit = (((lastClose - buyPrice) / buyPrice) * 100).toFixed(2);
+        const msg = `🔴 *إشارة بيع*\nالعملة: *${symbol}*\nالشراء: *${buyPrice}*\nالبيع: *${lastClose}*\nالربح/الخسارة: *${profit}%*\nالوقت: *${timestamp}*`;
+        await sendTelegramMessage(msg);
+        delete state[coin];
+        fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+        console.log(`🚨 تم إرسال تنبيه بيع لـ ${symbol}`);
+      }
+
+    } catch (error) {
+      console.log(`❌ خطأ في ${symbol}: ${error.message}`);
+    }
   }
 }
 
-cron.schedule('*/2 * * * *', runBot); // كل دقيقتين
+// تشغيل البوت كل دقيقتين
+cron.schedule('*/2 * * * *', runBot);
