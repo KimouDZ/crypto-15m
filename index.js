@@ -96,10 +96,7 @@ async function analyze() {
 
       const buySignal = rsiVal < 40 && pbVal < 0.4 && prevMacdHistBuy < 0 && macdHistBuy > 0;
       const sellSignal = position && rsiVal > 55 && prevMacdHistSell > 0 && macdHistSell < 0;
- let inPositions = {}; // 🟡 لتتبع العملات التي تم الشراء
-      // فوق دالة analyze
-      
-      // تعريف المعرف الفريد للعملة
+ 
 
 
 // الشروط
