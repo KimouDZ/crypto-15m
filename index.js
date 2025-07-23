@@ -10,11 +10,10 @@ const exchange = new ccxt.binance();
 const PRICE_DROP_SUPPORT = 0.015;
 
 let inPositions = {};
-let lastAlertsTime = {}; // متابع آخر وقت إرسال التنبيه لكل عملة ونوع تنبيه
-let percentBPassed = {}; // لتتبع تجاوز %B لقيمة 0.4 لكل عملة
-let dailyProfits = {};   // لتخزين الأرباح اليومية، المفتاح هو تاريخ اليوم 'YYYY-MM-DD'
+let lastAlertsTime = {}; // لتتبع آخر وقت إرسال تنبيه لكل عملة ونوع
+let percentBPassed = {}; // لتتبع تجاوز %B حد 0.2 لكل عملة
+let dailyProfits = {};   // تخزين الأرباح اليومية بالهيكل { totalProfit, wins, losses }
 
-// دالة إرسال رسالة تليجرام
 function sendTelegramMessage(message) {
   for (const chatId of CHAT_IDS) {
     axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
@@ -27,36 +26,29 @@ function sendTelegramMessage(message) {
   }
 }
 
-// منع تكرار التنبيهات خلال أقل من ثانية لكل نوع ولهذا العملة
 function canSendAlert(symbol, type, currentTime) {
   if (!lastAlertsTime[symbol]) {
     lastAlertsTime[symbol] = {};
   }
-
   const lastTime = lastAlertsTime[symbol][type];
-  if (lastTime && (currentTime - lastTime) < 1000) { // 1000 مللي ثانية = 1 ثانية
+  if (lastTime && (currentTime - lastTime) < 1000) { // منع التكرار خلال ثانية
     return false;
   }
-
   lastAlertsTime[symbol][type] = currentTime;
   return true;
 }
 
-// ضبط الوقت حسب توقيت الجزائر GMT+1
 function formatDate(date) {
-  const offsetDate = new Date(date.getTime() + 60 * 60 * 1000); // +1 ساعة
-
+  const offsetDate = new Date(date.getTime() + 60 * 60 * 1000); // GMT+1
   const day = String(offsetDate.getUTCDate()).padStart(2, '0');
   const month = String(offsetDate.getUTCMonth() + 1).padStart(2, '0');
   const year = offsetDate.getUTCFullYear();
   const hours = String(offsetDate.getUTCHours()).padStart(2, '0');
   const minutes = String(offsetDate.getUTCMinutes()).padStart(2, '0');
   const seconds = String(offsetDate.getUTCSeconds()).padStart(2, '0');
-
   return `${day}/${month}/${year} - ${hours}:${minutes}:${seconds}`;
 }
 
-// الحسابات الفنية
 function calculateMACD(values, fastPeriod, slowPeriod, signalPeriod) {
   return technicalindicators.MACD.calculate({
     values,
@@ -84,7 +76,6 @@ function calculatePercentB(closes, period = 20, stdDev = 2) {
   });
 }
 
-// التحليل لكل عملة
 async function analyze() {
   const coins = JSON.parse(fs.readFileSync('coins.json'));
   for (const symbol of coins) {
@@ -92,8 +83,7 @@ async function analyze() {
       const ohlcv = await exchange.fetchOHLCV(symbol, '15m');
       const closes = ohlcv.map(c => c[4]);
       const times = ohlcv.map(c => c[0]);
-
-      if (closes.length < 20) continue; // للتأكد من وجود بيانات كافية للمؤشرات
+      if (closes.length < 20) continue; // تأكد وجود بيانات كافية
 
       const rsi = calculateRSI(closes, 14);
       const percentB = calculatePercentB(closes);
@@ -110,18 +100,17 @@ async function analyze() {
       const pbVal = percentB[percentB.length - 1];
       const macdHistBuy = macdBuy[macdBuy.length - 1]?.MACD - macdBuy[macdBuy.length - 1]?.signal;
       const prevMacdHistBuy = macdBuy[macdBuy.length - 2]?.MACD - macdBuy[macdBuy.length - 2]?.signal;
-
       const macdHistSell = macdSell[macdSell.length - 1]?.MACD - macdSell[macdSell.length - 1]?.signal;
       const prevMacdHistSell = macdSell[macdSell.length - 2]?.MACD - macdSell[macdSell.length - 2]?.signal;
 
       const id = symbol;
       const position = inPositions[id];
 
-      // تحديث تتبع حالة %B لكل عملة
+      // تحديث حالة percentBPassed حسب شرط 0.2
       if (percentBPassed[symbol] === undefined) {
         percentBPassed[symbol] = false;
       }
-      if (pbVal > 0.4) {
+      if (pbVal > 0.2) {
         percentBPassed[symbol] = true;
       } else {
         percentBPassed[symbol] = false;
@@ -134,7 +123,7 @@ async function analyze() {
         prevMacdHistBuy < 0 &&
         macdHistBuy > 0;
 
-      // شروط البيع بعد التدعيم فقط
+      // شروط البيع بعد التدعيم (%B > 0.2 وتم تجاوزها، وتقاطع سلبي macdSell)
       const sellSignal = position &&
         position.supports.length > 0 &&
         percentBPassed[symbol] &&
@@ -150,28 +139,34 @@ async function analyze() {
             buyTime: time,
             supports: []
           };
-
           sendTelegramMessage(`🟢 *إشارة شراء جديدة*\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price}\n📅 الوقت: ${timeStr}`);
         }
       }
       // بيع بعد التدعيم
       else if (sellSignal) {
         if (canSendAlert(symbol, 'sell', now)) {
-          const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)]
-            .reduce((a, b) => a + b) / (1 + position.supports.length);
+          const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)].reduce((a, b) => a + b) / (1 + position.supports.length);
           const changePercent = ((price - avgBuy) / avgBuy * 100).toFixed(2);
-          const profit = price - avgBuy; // الحجم ثابت 1، عدل حسب حاجتك
-
-          // حساب تاريخ اليوم بالصيغة YYYY-MM-DD
+          const profit = price - avgBuy; // حجم ثابت 1 - عدل حسب حاجتك
           const dateStr = time.toISOString().slice(0, 10);
-          dailyProfits[dateStr] = (dailyProfits[dateStr] || 0) + profit;
+
+          // تهيئة الهيكل إذا لم يكن موجود
+          if (!dailyProfits[dateStr]) {
+            dailyProfits[dateStr] = { totalProfit: 0, wins: 0, losses: 0 };
+          }
+
+          dailyProfits[dateStr].totalProfit += profit;
+          if (profit > 0) {
+            dailyProfits[dateStr].wins++;
+          } else if (profit < 0) {
+            dailyProfits[dateStr].losses++;
+          }
+          // إذا الربح صفر لا نعده رابح ولا خاسر
 
           let message = `🔴 *إشارة بيع*\n\n🪙 العملة: ${symbol}\n💰 سعر الشراء الأساسي: ${position.buyPrice}\n📅 وقت الشراء: ${formatDate(position.buyTime)}\n`;
-
           position.supports.forEach((s, i) => {
             message += `➕ سعر التدعيم ${i + 1}: ${s.price}\n📅 وقت التدعيم ${i + 1}: ${formatDate(s.time)}\n`;
           });
-
           message += `\n💸 سعر البيع: ${price}\n📅 وقت البيع: ${timeStr}\n\n📊 الربح/الخسارة: ${changePercent > 0 ? '+' : ''}${changePercent}%`;
 
           sendTelegramMessage(message);
@@ -181,46 +176,47 @@ async function analyze() {
       // تدعيم شراء
       else if (position &&
         price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) &&
-        buySignal // شرط buySignal موجود في الكود لضمان تدعيم متسق مع إشارة شراء
+        buySignal
       ) {
         const lastSupport = position.supports[position.supports.length - 1];
         const basePrice = lastSupport ? lastSupport.price : position.buyPrice;
-
         if (price <= basePrice * (1 - PRICE_DROP_SUPPORT)) {
           if (canSendAlert(symbol, 'support', now)) {
             position.supports.push({ price, time });
-
             sendTelegramMessage(`🟠 *تدعيم للشراء*\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price}\n📅 الوقت: ${timeStr}`);
           }
         }
       }
-
-
-
     } catch (err) {
       console.error(`❌ خطأ في تحليل ${symbol}:`, err.message);
     }
   }
 }
 
-// جدولة التحليل كل دقيقتين كما كان
+// جدولة التحليل كل دقيقتين
 cron.schedule('*/2 * * * *', async () => {
   console.log("جاري التحليل...");
   await analyze();
 });
 
-// إرسال تقرير الأرباح اليومية يوميًا عند منتصف الليل
+// إرسال تقرير الأرباح يوميًا عند منتصف الليل
 cron.schedule('0 0 * * *', () => {
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
-  const dateStr = yesterday.toISOString().slice(0,10);
+  const dateStr = yesterday.toISOString().slice(0, 10);
 
-  const profit = dailyProfits[dateStr] || 0;
+  const report = dailyProfits[dateStr];
+  if (report) {
+    const message = `📊 تقرير الأرباح ليوم ${dateStr}:
+💰 إجمالي الربح/الخسارة: ${report.totalProfit.toFixed(8)} وحدة نقدية
+✅ عدد الصفقات الرابحة: ${report.wins}
+❌ عدد الصفقات الخاسرة: ${report.losses}`;
 
-  const message = `📊 تقرير الأرباح ليوم ${dateStr}:\n💰 الأرباح الكلية: ${profit.toFixed(8)} وحدة نقدية`;
+    sendTelegramMessage(message);
 
-  sendTelegramMessage(message);
-
-  // تنظيف الأرباح لليوم السابق بعد الإرسال
-  delete dailyProfits[dateStr];
+    // تنظيف بيانات اليوم بعد الإرسال
+    delete dailyProfits[dateStr];
+  } else {
+    sendTelegramMessage(`📊 تقرير الأرباح ليوم ${dateStr}:\nلم يتم تسجيل أي صفقة.`);
+  }
 });
