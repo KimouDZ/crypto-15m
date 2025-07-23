@@ -98,11 +98,9 @@ async function analyze() {
 
       // تعريف المعرف الفريد للعملة
 
-const position = inPositions[id];
 
 // الشروط
-const buySignal = rsiVal < 25 && pbVal < 0 && prevMacdHistBuy < 0 && macdHistBuy > 0;
-const sellSignal = position && rsiVal > 50 && prevMacdHistSell > 0 && macdHistSell < 0;
+
 
 // ✅ شراء جديد فقط إن لم يكن هناك صفقة جارية
 if (!position && buySignal) {
