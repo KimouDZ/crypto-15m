@@ -104,18 +104,23 @@ async function analyze() {
 
 // ✅ شراء جديد فقط إن لم يكن هناك صفقة جارية
 if (!position && buySignal) {
-  inPositions[id] = {
-    symbol,
-    buyPrice: price,
-    buyTime: time,
-    supports: []
-  };
+  const lastBuy = inPositions[id];
+  const alreadyBought = lastBuy && Math.abs(time - lastBuy.buyTime) < 1000; // خلال 60 ثانية
 
-  sendTelegramMessage(`🟢 *إشارة شراء جديدة*
+  if (!alreadyBought) {
+    inPositions[id] = {
+      symbol,
+      buyPrice: price,
+      buyTime: time,
+      supports: []
+    };
+
+    sendTelegramMessage(`🟢 *إشارة شراء جديدة*
 
 🪙 العملة: ${symbol}
 💰 السعر: ${price}
 📅 الوقت: ${timeStr}`);
+  
 
 } else if (position && sellSignal) {
   const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)].reduce((a, b) => a + b) / (1 + position.supports.length);
