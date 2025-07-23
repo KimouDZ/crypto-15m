@@ -129,7 +129,7 @@ if (!position && buySignal) {
 `;
 
   position.supports.forEach((s, i) => {
-    message += `🟠 سعر التدعيم ${i + 1}: ${s.price}
+    message += `➕ سعر التدعيم ${i + 1}: ${s.price}
 📅 وقت التدعيم ${i + 1}: ${formatDate(s.time)}
 `;
   });
