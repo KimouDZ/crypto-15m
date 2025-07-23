@@ -1,3 +1,4 @@
+let inPositions = {}; // 🟡 لتتبع العملات التي تم الشراء فيها
 import fs from 'fs';
 import axios from 'axios';
 import cron from 'node-cron';
