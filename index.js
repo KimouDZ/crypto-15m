@@ -24,10 +24,12 @@ function sendTelegramMessage(message) {
 }
 
 function formatDate(date) {
-return date.toLocaleString('en-GB', {
-day: '2-digit', month: '2-digit', year: 'numeric',
-hour: '2-digit', minute: '2-digit', hour12: false
-}).replace(',', ' -');
+  // أضف ساعة واحدة (3600000 مللي ثانية)
+  const offsetDate = new Date(date.getTime() + 1 * 60 * 60 * 1000);
+  return offsetDate.toLocaleString('en-GB', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }).replace(',', ' -');
 }
 
 function calculateMACD(values, fastPeriod, slowPeriod, signalPeriod) {
