@@ -120,6 +120,8 @@ if (!position && buySignal) {
 🪙 العملة: ${symbol}
 💰 السعر: ${price}
 📅 الوقت: ${timeStr}`);
+  } // ← هذه الأقواس كانت ناقصة هنا
+}
   
 
 } else if (position && sellSignal) {
