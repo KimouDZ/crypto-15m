@@ -1,3 +1,4 @@
+
 [
   "BTC/USDT",
   "ETH/USDT",
@@ -43,4 +44,9 @@
   "MATIC/USDT",
   "RUNE/USDT",
   "GALA/USDT",
-  
+  "MANA/USDT",
+  "CHR/USDT",
+  "MASK/USDT",
+  "EOS/USDT",
+  "RPL/USDT"
+]
