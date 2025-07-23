@@ -1,4 +1,4 @@
-
+let inPositions = {};
 import fs from 'fs';
 import axios from 'axios';
 import cron from 'node-cron';
@@ -104,7 +104,7 @@ async function analyze() {
 
 // ✅ شراء جديد فقط إن لم يكن هناك صفقة جارية
 // ... (بقية الاستيرادات كما هي)
-let inPositions = {};
+
 let lastBuyAlerts = {}; // 🟢 هذا الجديد: لتتبع آخر وقت تم فيه إرسال تنبيه شراء
 
 // ...
