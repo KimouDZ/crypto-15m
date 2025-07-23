@@ -93,7 +93,10 @@ async function analyze() {
       const lastIndex = closes.length - 1;
       const price = closes[lastIndex];
       const time = new Date(times[lastIndex]);
-      const timeStr = formatDate(time);
+const timeNow = new Date();
+const timeStr = formatDate(timeNow);
+
+      
       const now = time.getTime();
 
       const rsiVal = rsi[rsi.length - 1];
