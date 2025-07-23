@@ -1,4 +1,3 @@
-let inPositions = {};
 import fs from 'fs';
 import axios from 'axios';
 import cron from 'node-cron';
