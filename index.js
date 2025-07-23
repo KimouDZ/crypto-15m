@@ -5,7 +5,7 @@ import ccxt from 'ccxt';
 import technicalindicators from 'technicalindicators';
 
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
-const CHAT_IDS = ['1055739217', '674606053'];
+const CHAT_IDS = ['1055739217', '674606053' , '6430992956'];
 const exchange = new ccxt.binance();
 const PRICE_DROP_SUPPORT = 0.015;
 
@@ -24,11 +24,10 @@ function sendTelegramMessage(message) {
 }
 
 function formatDate(date) {
-  return date.toLocaleString('en-GB', {
-    timeZone: 'Etc/GMT-1', // GMT+1
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false
-  }).replace(',', ' -');
+return date.toLocaleString('en-GB', {
+day: '2-digit', month: '2-digit', year: 'numeric',
+hour: '2-digit', minute: '2-digit', hour12: false
+}).replace(',', ' -');
 }
 
 function calculateMACD(values, fastPeriod, slowPeriod, signalPeriod) {
