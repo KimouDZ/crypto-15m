@@ -95,7 +95,7 @@ async function analyze() {
 
       const buySignal = rsiVal < 40 && pbVal < 0.4 && prevMacdHistBuy < 0 && macdHistBuy > 0;
       const sellSignal = position && rsiVal > 55 && prevMacdHistSell > 0 && macdHistSell < 0;
-
+let lastBuyAlerts = {}; // فوق دالة analyze
       // تعريف المعرف الفريد للعملة
 
 
@@ -103,9 +103,15 @@ async function analyze() {
 
 
 // ✅ شراء جديد فقط إن لم يكن هناك صفقة جارية
+// ... (بقية الاستيرادات كما هي)
+let inPositions = {};
+let lastBuyAlerts = {}; // 🟢 هذا الجديد: لتتبع آخر وقت تم فيه إرسال تنبيه شراء
+
+// ...
+
 if (!position && buySignal) {
-  const lastBuy = inPositions[id];
-  const alreadyBought = lastBuy && Math.abs(time - lastBuy.buyTime) < 1000; // خلال 60 ثانية
+  const lastAlertTime = lastBuyAlerts[id];
+  const alreadyBought = lastAlertTime && Math.abs(time - lastAlertTime) < 1000; // أقل من ثانية
 
   if (!alreadyBought) {
     inPositions[id] = {
@@ -115,16 +121,17 @@ if (!position && buySignal) {
       supports: []
     };
 
+    lastBuyAlerts[id] = time; // 🟢 تحديث وقت آخر تنبيه
     sendTelegramMessage(`🟢 *إشارة شراء جديدة*
 
 🪙 العملة: ${symbol}
 💰 السعر: ${price}
 📅 الوقت: ${timeStr}`);
-  } // ← هذه الأقواس كانت ناقصة هنا
-
-  
-
-} else if (position && sellSignal) {
+  }
+}
+      
+      
+      else if (position && sellSignal) {
   const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)].reduce((a, b) => a + b) / (1 + position.supports.length);
   const change = ((price - avgBuy) / avgBuy * 100).toFixed(2);
 
