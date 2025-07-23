@@ -25,7 +25,7 @@ function sendTelegramMessage(message) {
 
 function formatDate(date) {
   const offsetDate = new Date(); // GMT+1
-  return offsetDate.toLocaleString('en-GB', {
+  return offsetDate.toLocaleString('en-DZ', {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit', hour12: false
   }).replace(',', ' -');
