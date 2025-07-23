@@ -121,7 +121,7 @@ if (!position && buySignal) {
 💰 السعر: ${price}
 📅 الوقت: ${timeStr}`);
   } // ← هذه الأقواس كانت ناقصة هنا
-}
+
   
 
 } else if (position && sellSignal) {
