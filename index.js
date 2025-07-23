@@ -96,55 +96,69 @@ async function analyze() {
       const buySignal = rsiVal < 40 && pbVal < 0.4 && prevMacdHistBuy < 0 && macdHistBuy > 0;
       const sellSignal = position && rsiVal > 55 && prevMacdHistSell > 0 && macdHistSell < 0;
 
-      if (!position && buySignal) {
-        inPositions[id] = {
-          symbol,
-          buyPrice: price,
-          buyTime: time,
-          supports: []
-        };
-        sendTelegramMessage(`🟢 *إشارة شراء جديدة*
+      // تعريف المعرف الفريد للعملة
+const id = symbol;
+const position = inPositions[id];
+
+// الشروط
+const buySignal = rsiVal < 25 && pbVal < 0 && prevMacdHistBuy < 0 && macdHistBuy > 0;
+const sellSignal = position && rsiVal > 50 && prevMacdHistSell > 0 && macdHistSell < 0;
+
+// ✅ شراء جديد فقط إن لم يكن هناك صفقة جارية
+if (!position && buySignal) {
+  inPositions[id] = {
+    symbol,
+    buyPrice: price,
+    buyTime: time,
+    supports: []
+  };
+
+  sendTelegramMessage(`🟢 *إشارة شراء جديدة*
 
 🪙 العملة: ${symbol}
 💰 السعر: ${price}
 📅 الوقت: ${timeStr}`);
 
-      } else if (position && sellSignal) {
-        const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)].reduce((a, b) => a + b) / (1 + position.supports.length);
-        const change = ((price - avgBuy) / avgBuy * 100).toFixed(2);
-        let message = `🔴 *إشارة بيع*
+} else if (position && sellSignal) {
+  const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)].reduce((a, b) => a + b) / (1 + position.supports.length);
+  const change = ((price - avgBuy) / avgBuy * 100).toFixed(2);
+
+  let message = `🔴 *إشارة بيع*
 
 🪙 العملة: ${symbol}
 💰 سعر الشراء الأساسي: ${position.buyPrice}
 📅 وقت الشراء: ${formatDate(position.buyTime)}
-
 `;
-        position.supports.forEach((s, i) => {
-          message += `➕ سعر التدعيم ${i + 1}: ${s.price}
+
+  position.supports.forEach((s, i) => {
+    message += `🟠 سعر التدعيم ${i + 1}: ${s.price}
 📅 وقت التدعيم ${i + 1}: ${formatDate(s.time)}
 `;
-        });
-        message += `
+  });
+
+  message += `
 💸 سعر البيع: ${price}
 📅 وقت البيع: ${timeStr}
 
 📊 الربح/الخسارة: ${change > 0 ? '+' : ''}${change}%`;
 
-        sendTelegramMessage(message);
-        delete inPositions[id];
+  sendTelegramMessage(message);
+  delete inPositions[id]; // نحذفها بعد البيع
 
-      } else if (position && price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) && buySignal) {
-        const lastSupport = position.supports[position.supports.length - 1];
-        const basePrice = lastSupport ? lastSupport.price : position.buyPrice;
-        if (price <= basePrice * (1 - PRICE_DROP_SUPPORT)) {
-          position.supports.push({ price, time });
-          sendTelegramMessage(`🟠 *تدعيم للشراء*
+} else if (position && price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) && buySignal) {
+  const lastSupport = position.supports[position.supports.length - 1];
+  const basePrice = lastSupport ? lastSupport.price : position.buyPrice;
+
+  if (price <= basePrice * (1 - PRICE_DROP_SUPPORT)) {
+    position.supports.push({ price, time });
+
+    sendTelegramMessage(`🟠 *تدعيم للشراء*
 
 🪙 العملة: ${symbol}
 💰 السعر: ${price}
 📅 الوقت: ${timeStr}`);
-        }
-      }
+  }
+}
     } catch (err) {
       console.error(`❌ خطأ في تحليل ${symbol}:`, err.message);
     }
