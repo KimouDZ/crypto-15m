@@ -97,7 +97,7 @@ async function analyze() {
       const sellSignal = position && rsiVal > 55 && prevMacdHistSell > 0 && macdHistSell < 0;
 
       // تعريف المعرف الفريد للعملة
-const id = symbol;
+
 const position = inPositions[id];
 
 // الشروط
