@@ -24,11 +24,17 @@ function sendTelegramMessage(message) {
 }
 
 function formatDate(date) {
-  const offsetDate = new Date(); // GMT+1
-  return offsetDate.toLocaleString('en-DZ', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false
-  }).replace(',', ' -');
+  // تحويل إلى توقيت الجزائر (GMT+1) يدويًا وثابتًا
+  const offsetDate = new Date(date.getTime() + 60 * 60 * 1000); // +1 ساعة
+
+  const day = String(offsetDate.getUTCDate()).padStart(2, '0');
+  const month = String(offsetDate.getUTCMonth() + 1).padStart(2, '0');
+  const year = offsetDate.getUTCFullYear();
+  const hours = String(offsetDate.getUTCHours()).padStart(2, '0');
+  const minutes = String(offsetDate.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(offsetDate.getUTCSeconds()).padStart(2, '0');
+
+  return `${day}/${month}/${year} - ${hours}:${minutes}:${seconds}`;
 }
 
 function calculateMACD(values, fastPeriod, slowPeriod, signalPeriod) {
