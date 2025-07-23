@@ -5,18 +5,22 @@ import ccxt from 'ccxt';
 import technicalindicators from 'technicalindicators';
 
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
-const CHAT_ID = '1055739217';
+const CHAT_IDS = ['1055739217', '674606053'];
 const exchange = new ccxt.binance();
 const PRICE_DROP_SUPPORT = 0.015;
 
 let inPositions = {};
 
 function sendTelegramMessage(message) {
-  axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-    chat_id: CHAT_ID,
-    text: message,
-    parse_mode: 'Markdown'
-  });
+  for (const chatId of CHAT_IDS) {
+    axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text: message,
+      parse_mode: 'Markdown'
+    }).catch(error => {
+      console.error(`❌ فشل إرسال الرسالة إلى ${chatId}:`, error.message);
+    });
+  }
 }
 
 function formatDate(date) {
