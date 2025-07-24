@@ -5,8 +5,8 @@ import cron from 'node-cron';
 import ccxt from 'ccxt';
 import technicalindicators from 'technicalindicators';
 
-const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8'; // ضع توكن البوت هنا
-const CHAT_IDS = ['1055739217','6430992956','674606053']; // ضع أرقام الشات هنا
+const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
+const CHAT_IDS = ['1055739217','6430992956','674606053'];
 const exchange = new ccxt.binance();
 const PRICE_DROP_SUPPORT = 0.015;
 
@@ -29,7 +29,7 @@ function sendTelegramMessage(message) {
 }
 
 function canSendAlert(symbol, type, currentTime, price) {
-  const COOLDOWN = 5 * 60 * 1000; // 5 دقائق بالميلي ثانية
+  const COOLDOWN = 5 * 60 * 1000; // 5 دقائق
   if (!lastAlertsTime[symbol]) {
     lastAlertsTime[symbol] = {};
     lastAlertPrice[symbol] = {};
@@ -38,7 +38,7 @@ function canSendAlert(symbol, type, currentTime, price) {
   const lastPrice = lastAlertPrice[symbol][type];
 
   if (lastTime && (currentTime - lastTime) < COOLDOWN && lastPrice === price) {
-    return false; // نفس السعر ونفس النوع خلال فترة الكوولداون
+    return false;
   }
   lastAlertsTime[symbol][type] = currentTime;
   lastAlertPrice[symbol][type] = price;
@@ -125,7 +125,9 @@ async function analyze() {
       if (buySignal) {
         if (canSendAlert(symbol, 'buy', now, price)) {
           inPositions[symbol] = { symbol, buyPrice: price, buyTime: timeNow, supports: [] };
-          sendTelegramMessage(`🟢 إشارة شراء جديدة\nالعملة: ${symbol}\nالسعر: ${price}\nالوقت: ${timeStr}`);
+          sendTelegramMessage(
+            `🟢 إشــارة شــراء جديدة\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n📅 الوقت: ${timeStr}`
+          );
         }
       }
       else if (sellSignal) {
@@ -140,12 +142,13 @@ async function analyze() {
           if (profit > 0) dailyProfits[dateStr].wins++;
           else if (profit < 0) dailyProfits[dateStr].losses++;
 
-          let message = `🔴 إشارة بيع\nالعملة: ${symbol}\nسعر الشراء الأساسي: ${position.buyPrice}\nوقت الشراء: ${formatDate(position.buyTime)}\n`;
-          position.supports.forEach((s, i) => {
-            message += `➕ سعر التدعيم ${i + 1}: ${s.price}\nوقت التدعيم ${i + 1}: ${formatDate(s.time)}\n`;
-          });
-          message += `\n💸 سعر البيع: ${price}\nوقت البيع: ${timeStr}\n\n📊 الربح/الخسارة: ${changePercent > 0 ? '+' : ''}${changePercent}%`;
+          let message = `🔴 إشــارة بيـع\n\n🪙 العملة: ${symbol}\n💰 سعر الشراء الأساسي: ${position.buyPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n📅 وقت الشراء: ${formatDate(position.buyTime)}\n\n`;
 
+          position.supports.forEach((s, i) => {
+            message += `➕ سعر التدعيم ${i + 1}: ${s.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n📅 وقت التدعيم ${i + 1}: ${formatDate(s.time)}\n\n`;
+          });
+
+          message += `💸 سعر البيع: ${price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n📅 وقت البيع: ${timeStr}\n\n📊 الربح/الخسارة: ${changePercent > 0 ? '+' : ''}${changePercent}%`;
           sendTelegramMessage(message);
           delete inPositions[symbol];
         }
@@ -161,8 +164,7 @@ async function analyze() {
           if (profit > 0) dailyProfits[dateStr].wins++;
           else if (profit < 0) dailyProfits[dateStr].losses++;
 
-          let message = `🔴 إشارة بيع عادي\nالعملة: ${symbol}\nسعر الشراء: ${position.buyPrice}\nوقت الشراء: ${formatDate(position.buyTime)}\n\n💸 سعر البيع: ${price}\nوقت البيع: ${timeStr}\n\n📊 الربح/الخسارة: ${changePercent > 0 ? '+' : ''}${changePercent}%`;
-
+          let message = `🔴 إشــارة بيع عادي\n\n🪙 العملة: ${symbol}\n💰 سعر الشراء: ${position.buyPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n📅 وقت الشراء: ${formatDate(position.buyTime)}\n\n💸 سعر البيع: ${price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n📅 وقت البيع: ${timeStr}\n\n📊 الربح/الخسارة: ${changePercent > 0 ? '+' : ''}${changePercent}%`;
           sendTelegramMessage(message);
           delete inPositions[symbol];
         }
@@ -176,7 +178,9 @@ async function analyze() {
         if (price <= basePrice * (1 - PRICE_DROP_SUPPORT)) {
           if (canSendAlert(symbol, 'support', now, price)) {
             position.supports.push({ price, time: timeNow });
-            sendTelegramMessage(`🟠 تدعيم للشراء\nالعملة: ${symbol}\nالسعر: ${price}\nالوقت: ${timeStr}`);
+            sendTelegramMessage(
+              `🟠 تــدعيـم للشراء\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}\n📅 الوقت: ${timeStr}`
+            );
           }
         }
       }
