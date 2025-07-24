@@ -209,7 +209,9 @@ async function analyze() {
   }
 }
 
- () => {
+
+
+cron.schedule('*/2 * * * *', async () => {
   if (isAnalyzing) {
     console.log("تحليل قيد التنفيذ، تخطي هذه الدورة.");
     return;
