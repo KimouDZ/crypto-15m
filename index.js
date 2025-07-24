@@ -6,7 +6,7 @@ import ccxt from 'ccxt';
 import technicalindicators from 'technicalindicators';
 
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
-const CHAT_IDS = ['1055739217', '6430992956', '674606053'];
+const CHAT_IDS = ['1055739217'];
 const exchange = new ccxt.binance();
 const PRICE_DROP_SUPPORT = 0.015;
 
