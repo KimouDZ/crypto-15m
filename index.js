@@ -188,7 +188,7 @@ async function analyze() {
 
 let isAnalyzing = false;
 
-cron.schedule('*/15 * * * *', async () => {
+cron.schedule('*/2 * * * *', async () => {
   if (isAnalyzing) {
     console.log("تحليل قيد التنفيذ، تخطي هذه الدورة.");
     return;
