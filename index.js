@@ -209,8 +209,20 @@ async function analyze() {
   }
 }
 
-cron.schedule('*/2 * * * *', async () => {
-  await analyze();
+ () => {
+  if (isAnalyzing) {
+    console.log("تحليل قيد التنفيذ، تخطي هذه الدورة.");
+    return;
+  }
+  try {
+    isAnalyzing = true;
+    console.log("جاري التحليل...");
+    await analyze();
+  } catch (error) {
+    console.error("خطأ أثناء التحليل:", error);
+  } finally {
+    isAnalyzing = false;
+  }
 });
 
 cron.schedule('0 0 * * *', () => {
