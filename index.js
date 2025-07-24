@@ -84,7 +84,7 @@ async function analyze() {
       const ohlcv = await exchange.fetchOHLCV(symbol, '15m');
       const closes = ohlcv.map(c => c[4]);
       const times = ohlcv.map(c => c[0]);
-      if (closes.length < 20) continue;
+      if (closes.length < 20) continue; // تأكد وجود بيانات كافية
 
       const rsi = calculateRSI(closes, 14);
       const percentB = calculatePercentB(closes);
@@ -94,8 +94,10 @@ async function analyze() {
       const lastIndex = closes.length - 1;
       const price = closes[lastIndex];
       const time = new Date(times[lastIndex]);
-      const timeStr = formatDate(time);
-      const now = Date.now();
+      const timeNow = new Date();
+      const timeStr = formatDate(timeNow);
+
+      const now = time.getTime();
 
       const rsiVal = rsi[rsi.length - 1];
       const pbVal = percentB[percentB.length - 1];
@@ -107,25 +109,38 @@ async function analyze() {
       const id = symbol;
       const position = inPositions[id];
 
+      // تحديث حالة percentBPassed حسب شرط 0.2
       if (percentBPassed[symbol] === undefined) {
         percentBPassed[symbol] = false;
       }
-      percentBPassed[symbol] = pbVal > 0.2;
+      if (pbVal > 0.2) {
+        percentBPassed[symbol] = true;
+      } else {
+        percentBPassed[symbol] = false;
+      }
 
-      const buySignal = !position && rsiVal < 40 && pbVal < 0.4 && prevMacdHistBuy < 0 && macdHistBuy > 0;
+      // شروط الشراء
+      const buySignal = !position &&
+        rsiVal < 40 &&
+        pbVal < 0.4 &&
+        prevMacdHistBuy < 0 &&
+        macdHistBuy > 0;
 
-      const sellAfterSupportSignal = position &&
-                                     position.supports.length > 0 &&
-                                     percentBPassed[symbol] &&
-                                     prevMacdHistSell > 0 &&
-                                     macdHistSell < 0;
+      // شروط البيع بعد التدعيم (%B > 0.2 وتم تجاوزها، وتقاطع سلبي macdSell)
+      const sellSignal = position &&
+        position.supports.length > 0 &&
+        percentBPassed[symbol] &&
+        prevMacdHistSell > 0 &&
+        macdHistSell < 0;
 
-      const sellBasicSignal = position &&
-                              position.supports.length === 0 &&
-                              rsiVal > 55 &&
-                              prevMacdHistSell > 0 &&
-                              macdHistSell < 0;
+      // شرط بيع عادي بدون تدعيم: RSI > 55 وبعد أول تقاطع سلبي MACD
+      const sellRegularSignal = position &&
+        position.supports.length === 0 &&
+        rsiVal > 55 &&
+        prevMacdHistSell > 0 &&
+        macdHistSell < 0;
 
+      // شراء جديد
       if (buySignal) {
         if (canSendAlert(symbol, 'buy', now)) {
           inPositions[id] = {
@@ -137,86 +152,25 @@ async function analyze() {
           sendTelegramMessage(`🟢 *إشارة شراء جديدة*\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price}\n📅 الوقت: ${timeStr}`);
         }
       }
-      else if (sellAfterSupportSignal) {
+      // بيع بعد التدعيم
+      else if (sellSignal) {
         if (canSendAlert(symbol, 'sell', now)) {
-          const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)].reduce((a,b) => a+b) / (1 + position.supports.length);
+          const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)].reduce((a, b) => a + b) / (1 + position.supports.length);
           const changePercent = ((price - avgBuy) / avgBuy * 100).toFixed(2);
-          const profit = price - avgBuy;
-          const dateStr = time.toISOString().slice(0,10);
+          const profit = price - avgBuy; // حجم ثابت 1 - عدل حسب حاجتك
+          const dateStr = time.toISOString().slice(0, 10);
 
+          // تهيئة الهيكل إذا لم يكن موجود
           if (!dailyProfits[dateStr]) {
             dailyProfits[dateStr] = { totalProfit: 0, wins: 0, losses: 0 };
           }
 
           dailyProfits[dateStr].totalProfit += profit;
-          if (profit > 0) dailyProfits[dateStr].wins++;
-          else if (profit < 0) dailyProfits[dateStr].losses++;
-
-          let message = `🔴 *إشارة بيع بعد تدعيم*\n\n🪙 العملة: ${symbol}\n💰 سعر البيع: ${price}\n📅 الوقت: ${timeStr}\n📊 الربح/الخسارة: ${changePercent}%`;
-          sendTelegramMessage(message);
-          delete inPositions[id];
-        }
-      }
-      else if (sellBasicSignal) {
-        if (canSendAlert(symbol, 'sell_basic', now)) {
-          const avgBuy = position.buyPrice;
-          const changePercent = ((price - avgBuy) / avgBuy * 100).toFixed(2);
-          const profit = price - avgBuy;
-          const dateStr = time.toISOString().slice(0,10);
-
-          if (!dailyProfits[dateStr]) {
-            dailyProfits[dateStr] = { totalProfit: 0, wins: 0, losses: 0 };
+          if (profit > 0) {
+            dailyProfits[dateStr].wins++;
+          } else if (profit < 0) {
+            dailyProfits[dateStr].losses++;
           }
-          dailyProfits[dateStr].totalProfit += profit;
-          if (profit > 0) dailyProfits[dateStr].wins++;
-          else if (profit < 0) dailyProfits[dateStr].losses++;
+          // إذا الربح صفر لا نعده رابح ولا خاسر
 
-          let message = `🔴 *إشارة بيع عادي*\n\n🪙 العملة: ${symbol}\n💰 سعر الشراء الأساسي: ${position.buyPrice}\n📅 وقت الشراء: ${formatDate(position.buyTime)}\n💰 سعر البيع: ${price}\n📅 وقت البيع: ${timeStr}\n\n📊 الربح/الخسارة: ${changePercent > 0 ? '+' : ''}${changePercent}%`;
-          sendTelegramMessage(message);
-          delete inPositions[id];
-        }
-      }
-      else if (position &&
-               price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) &&
-               buySignal) {
-        const lastSupport = position.supports[position.supports.length - 1];
-        const basePrice = lastSupport ? lastSupport.price : position.buyPrice;
-        if (price <= basePrice * (1 - PRICE_DROP_SUPPORT)) {
-          if (canSendAlert(symbol, 'support', now)) {
-            position.supports.push({ price, time });
-            sendTelegramMessage(`🟠 *تدعيم للشراء*\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price}\n📅 الوقت: ${timeStr}`);
-          }
-        }
-      }
-    } catch (err) {
-      console.error(`❌ خطأ في تحليل ${symbol}:`, err.message);
-    }
-  }
-}
-
-// جدولة التحليل كل دقيقتين
-cron.schedule('*/2 * * * *', async () => {
-  console.log("جاري التحليل...");
-  await analyze();
-});
-
-// إرسال تقرير الأرباح يوميًا عند منتصف الليل
-cron.schedule('0 0 * * *', () => {
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const dateStr = yesterday.toISOString().slice(0, 10);
-
-  const report = dailyProfits[dateStr];
-  if (report) {
-    const message = `📊 تقرير الأرباح ليوم ${dateStr}:
-💰 إجمالي الربح/الخسارة: ${report.totalProfit.toFixed(8)} وحدة نقدية
-✅ عدد الصفقات الرابحة: ${report.wins}
-❌ عدد الصفقات الخاسرة: ${report.losses}`;
-
-    sendTelegramMessage(message);
-
-    delete dailyProfits[dateStr];
-  } else {
-    sendTelegramMessage(`📊 تقرير الأرباح ليوم ${dateStr}:\nلم يتم تسجيل أي صفقة.`);
-  }
-});
+          let message = `🔴 *إشارة بيع*\n\n🪙 العملة: ${symbol}\n💰 سعر الشراء الأساسي
