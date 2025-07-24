@@ -1,3 +1,4 @@
+
 import fs from 'fs';
 import axios from 'axios';
 import cron from 'node-cron';
@@ -83,7 +84,7 @@ async function analyze() {
       const ohlcv = await exchange.fetchOHLCV(symbol, '15m');
       const closes = ohlcv.map(c => c[4]);
       const times = ohlcv.map(c => c[0]);
-      if (closes.length < 20) continue; // تأكد وجود بيانات كافية
+      if (closes.length < 20) continue;
 
       const rsi = calculateRSI(closes, 14);
       const percentB = calculatePercentB(closes);
@@ -106,34 +107,25 @@ async function analyze() {
       const id = symbol;
       const position = inPositions[id];
 
-      // تحديث حالة percentBPassed حسب شرط 0.2
       if (percentBPassed[symbol] === undefined) {
         percentBPassed[symbol] = false;
       }
       percentBPassed[symbol] = pbVal > 0.2;
 
-      // شرط الشراء
-      const buySignal = !position &&
-        rsiVal < 40 &&
-        pbVal < 0.4 &&
-        prevMacdHistBuy < 0 &&
-        macdHistBuy > 0;
+      const buySignal = !position && rsiVal < 40 && pbVal < 0.4 && prevMacdHistBuy < 0 && macdHistBuy > 0;
 
-      // شرط البيع بعد تدعيم
       const sellAfterSupportSignal = position &&
                                      position.supports.length > 0 &&
                                      percentBPassed[symbol] &&
                                      prevMacdHistSell > 0 &&
                                      macdHistSell < 0;
 
-      // شرط البيع العادي بدون تدعيم
       const sellBasicSignal = position &&
                               position.supports.length === 0 &&
                               rsiVal > 55 &&
                               prevMacdHistSell > 0 &&
                               macdHistSell < 0;
 
-      // تنفيذ أوامر الشراء
       if (buySignal) {
         if (canSendAlert(symbol, 'buy', now)) {
           inPositions[id] = {
@@ -145,14 +137,12 @@ async function analyze() {
           sendTelegramMessage(`🟢 *إشارة شراء جديدة*\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price}\n📅 الوقت: ${timeStr}`);
         }
       }
-      // تنفيذ بيع بعد تدعيم
       else if (sellAfterSupportSignal) {
         if (canSendAlert(symbol, 'sell', now)) {
-          const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)]
-            .reduce((a, b) => a + b) / (1 + position.supports.length);
+          const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)].reduce((a,b) => a+b) / (1 + position.supports.length);
           const changePercent = ((price - avgBuy) / avgBuy * 100).toFixed(2);
           const profit = price - avgBuy;
-          const dateStr = time.toISOString().slice(0, 10);
+          const dateStr = time.toISOString().slice(0,10);
 
           if (!dailyProfits[dateStr]) {
             dailyProfits[dateStr] = { totalProfit: 0, wins: 0, losses: 0 };
@@ -167,18 +157,16 @@ async function analyze() {
           delete inPositions[id];
         }
       }
-      // تنفيذ البيع العادي بدون تدعيم
       else if (sellBasicSignal) {
         if (canSendAlert(symbol, 'sell_basic', now)) {
           const avgBuy = position.buyPrice;
           const changePercent = ((price - avgBuy) / avgBuy * 100).toFixed(2);
           const profit = price - avgBuy;
-          const dateStr = time.toISOString().slice(0, 10);
+          const dateStr = time.toISOString().slice(0,10);
 
           if (!dailyProfits[dateStr]) {
             dailyProfits[dateStr] = { totalProfit: 0, wins: 0, losses: 0 };
           }
-
           dailyProfits[dateStr].totalProfit += profit;
           if (profit > 0) dailyProfits[dateStr].wins++;
           else if (profit < 0) dailyProfits[dateStr].losses++;
@@ -188,11 +176,9 @@ async function analyze() {
           delete inPositions[id];
         }
       }
-      // تدعيم شراء
       else if (position &&
-        price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) &&
-        buySignal
-      ) {
+               price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) &&
+               buySignal) {
         const lastSupport = position.supports[position.supports.length - 1];
         const basePrice = lastSupport ? lastSupport.price : position.buyPrice;
         if (price <= basePrice * (1 - PRICE_DROP_SUPPORT)) {
@@ -229,7 +215,6 @@ cron.schedule('0 0 * * *', () => {
 
     sendTelegramMessage(message);
 
-    // تنظيف بيانات اليوم بعد الإرسال
     delete dailyProfits[dateStr];
   } else {
     sendTelegramMessage(`📊 تقرير الأرباح ليوم ${dateStr}:\nلم يتم تسجيل أي صفقة.`);
