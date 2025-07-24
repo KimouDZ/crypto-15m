@@ -29,11 +29,30 @@ function sendTelegramMessage(message) {
 }
 
 function canSendAlert(symbol, type, currentTime, price) {
-  const COOLDOWN = 100; // 5 دقائق
+  const SHORT_COOLDOWN = 60 * 1000; // 1 دقيقة
+  const LONG_COOLDOWN = 5 * 60 * 1000; // 5 دقائق
+
   if (!lastAlertsTime[symbol]) {
     lastAlertsTime[symbol] = {};
     lastAlertPrice[symbol] = {};
   }
+  const lastTime = lastAlertsTime[symbol][type];
+  const lastPrice = lastAlertPrice[symbol][type];
+
+  // إذا السعر نفسه والفرق أقل من دقيقة لا ترسل
+  if (lastTime && lastPrice === price && (currentTime - lastTime) < SHORT_COOLDOWN) {
+    return false;
+  }
+  // إذا الفرق أكبر من دقيقة وأقل من 5 دقائق ولا تغير السعر، يمكن اعتبار إرسال مرة واحدة
+  if (lastTime && (currentTime - lastTime) < LONG_COOLDOWN && lastPrice === price) {
+    return false;
+  }
+
+  lastAlertsTime[symbol][type] = currentTime;
+  lastAlertPrice[symbol][type] = price;
+  return true;
+}
+
   const lastTime = lastAlertsTime[symbol][type];
   const lastPrice = lastAlertPrice[symbol][type];
 
