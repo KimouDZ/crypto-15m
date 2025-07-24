@@ -5,8 +5,8 @@ import cron from 'node-cron';
 import ccxt from 'ccxt';
 import technicalindicators from 'technicalindicators';
 
-const TELEGRAM_TOKEN = '...'; // ضع توكن البوت هنا
-const CHAT_IDS = ['...']; // ضع أرقام الشات هنا
+const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8'; // ضع توكن البوت هنا
+const CHAT_IDS = ['1055739217','6430992956','674606053']; // ضع أرقام الشات هنا
 const exchange = new ccxt.binance();
 const PRICE_DROP_SUPPORT = 0.015;
 
