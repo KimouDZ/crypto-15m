@@ -29,7 +29,7 @@ function sendTelegramMessage(message) {
 }
 
 function canSendAlert(symbol, type, currentTime, price) {
-  const COOLDOWN = 5 * 60 * 1000; // 5 دقائق
+  const COOLDOWN = 100; // 5 دقائق
   if (!lastAlertsTime[symbol]) {
     lastAlertsTime[symbol] = {};
     lastAlertPrice[symbol] = {};
