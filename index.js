@@ -38,11 +38,15 @@ const ALERT_COOLDOWN_MS = 60 * 1000; // 60 ثانية
 
 function sendTelegramMessage(message) {
   for (const chatId of CHAT_IDS) {
+    console.log(`⚡️ إرسال رسالة إلى ${chatId} في الوقت ${new Date().toISOString()}`);
     axios
       .post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
         chat_id: chatId,
         text: message,
         parse_mode: 'Markdown',
+      })
+      .then(() => {
+        console.log(`✅ تم إرسال الرسالة بنجاح إلى ${chatId}`);
       })
       .catch((error) => {
         console.error(`❌ فشل إرسال الرسالة إلى ${chatId}:`, error.message);
@@ -56,7 +60,9 @@ function roundPrice(price) {
 
 function canSendAlert(symbol, currentTime) {
   if (alertSentUntil[symbol] && currentTime < alertSentUntil[symbol]) {
-    console.log(`تم منع التنبيه مؤقتًا لـ ${symbol} حتى ${new Date(alertSentUntil[symbol]).toISOString()}`);
+    console.log(
+      `🚫 تم منع التنبيه مؤقتًا لـ ${symbol} حتى ${new Date(alertSentUntil[symbol]).toISOString()}`
+    );
     return false;
   }
 
@@ -115,7 +121,7 @@ async function analyze() {
     for (const symbol of coins) {
       console.log(`🔍 جاري تحليل العملة: ${symbol}`);
 
-      let alertSentForSymbol = false; // لمنع إرسال أكثر من تنبيه لنفس العملة في دورة التحليل الواحدة
+      let alertSentForSymbol = false; // منع إرسال أكثر من تنبيه خلال نفس دورة التحليل
 
       try {
         const ohlcv = await exchange.fetchOHLCV(symbol, '15m');
@@ -187,11 +193,15 @@ async function analyze() {
           }
         } else if (!alertSentForSymbol && sellSignal) {
           if (canSendAlert(symbol, now)) {
-            console.log(`🔴 [${timeStr}] إشارة بيع تدعيم للرمز ${symbol} عند السعر ${price}`);
+            console.log(
+              `🔴 [${timeStr}] إشارة بيع تدعيم للرمز ${symbol} عند السعر ${price}`
+            );
             const avgBuy =
-              [position.buyPrice, ...position.supports.map((s) => s.price)].reduce((a, b) => a + b) /
-              (1 + position.supports.length);
-            const changePercent = ((price - avgBuy) / avgBuy * 100).toFixed(2);
+              ([position.buyPrice, ...position.supports.map((s) => s.price)].reduce(
+                (a, b) => a + b
+              ) /
+                (1 + position.supports.length));
+            const changePercent = ((price - avgBuy) / avgBuy) * 100;
             const profit = price - avgBuy;
             const dateStr = timeNow.toISOString().slice(0, 10);
 
@@ -215,7 +225,7 @@ async function analyze() {
 
             message += `💸 سعر البيع: ${price}\n📅 وقت البيع: ${timeStr}\n\n📊 الربح/الخسارة: ${
               changePercent > 0 ? '+' : ''
-            }${changePercent}%`;
+            }${changePercent.toFixed(2)}%`;
             sendTelegramMessage(message);
             delete inPositions[symbol];
             savePositions(inPositions);
@@ -223,8 +233,10 @@ async function analyze() {
           }
         } else if (!alertSentForSymbol && sellRegularSignal) {
           if (canSendAlert(symbol, now)) {
-            console.log(`🔴 [${timeStr}] إشارة بيع عادي للرمز ${symbol} عند السعر ${price}`);
-            const changePercent = ((price - position.buyPrice) / position.buyPrice * 100).toFixed(2);
+            console.log(
+              `🔴 [${timeStr}] إشارة بيع عادي للرمز ${symbol} عند السعر ${price}`
+            );
+            const changePercent = ((price - position.buyPrice) / position.buyPrice) * 100;
             const profit = price - position.buyPrice;
             const dateStr = timeNow.toISOString().slice(0, 10);
 
@@ -239,7 +251,7 @@ async function analyze() {
               { minimumFractionDigits: 2, maximumFractionDigits: 2 }
             )}\n📅 وقت الشراء: ${formatDate(position.buyTime)}\n\n💸 سعر البيع: ${price}\n📅 وقت البيع: ${timeStr}\n\n📊 الربح/الخسارة: ${
               changePercent > 0 ? '+' : ''
-            }${changePercent}%`;
+            }${changePercent.toFixed(2)}%`;
             sendTelegramMessage(message);
             delete inPositions[symbol];
             savePositions(inPositions);
@@ -255,7 +267,9 @@ async function analyze() {
           const basePrice = lastSupport ? lastSupport.price : position.buyPrice;
           if (price <= basePrice * (1 - PRICE_DROP_SUPPORT)) {
             if (canSendAlert(symbol, now)) {
-              console.log(`🟠 [${timeStr}] إشارة تدعيم شراء للرمز ${symbol} عند السعر ${price}`);
+              console.log(
+                `🟠 [${timeStr}] إشارة تدعيم شراء للرمز ${symbol} عند السعر ${price}`
+              );
               position.supports.push({ price, time: timeNow });
               savePositions(inPositions);
               sendTelegramMessage(
