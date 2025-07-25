@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid'; // تحتاج تثبيت uuid عبر npm in
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
 const CHAT_IDS = ['1055739217', '6430992956', '674606053'];
 const exchange = new ccxt.binance();
-const PRICE_DROP_SUPPORT = 0.015;
+const PRICE_DROP_SUPPORT = 0.017;
 
 // معرف فريد لكل تشغيل للتمييز بين نسخ البرنامج المختلفة
 const RUN_ID = uuidv4();
