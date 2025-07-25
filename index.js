@@ -1,3 +1,4 @@
+
 import fs from 'fs';
 import axios from 'axios';
 import cron from 'node-cron';
@@ -115,9 +116,16 @@ async function analyze() {
 
   try {
     const coins = JSON.parse(fs.readFileSync('coins.json'));
+
+    // عرض بداية التحليل وقائمة العملات
+    console.log(`بدء تحليل العملات: ${coins.join(', ')}`);
+
     const now = Date.now();
 
     for (const symbol of coins) {
+      // عرض العملة التي يجري تحليلها حالياً
+      console.log(`جاري تحليل العملة: ${symbol}`);
+
       try {
         const ohlcv = await exchange.fetchOHLCV(symbol, '15m');
         const closes = ohlcv.map(c => c[4]);
@@ -266,4 +274,3 @@ cron.schedule('0 * * * *', () => {
     }
   }
 });
-      
