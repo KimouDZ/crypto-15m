@@ -119,6 +119,8 @@ async function analyze() {
     for (const symbol of coins) {
       console.log(`جاري تحليل العملة: ${symbol}`);
 
+      let alertSentForSymbol = false; // متغير لتعقب التنبيهات المرسلة لهذا الرمز خلال دورة التحليل
+
       try {
         const ohlcv = await exchange.fetchOHLCV(symbol, '15m');
         const closes = ohlcv.map(c => c[4]);
@@ -163,7 +165,7 @@ async function analyze() {
 
         // حذف طباعة قيم المؤشرات بناء على طلبك
 
-        if (buySignal) {
+        if (!alertSentForSymbol && buySignal) {
           console.log(`إشارة شراء للرمز ${symbol} عند السعر ${price}`);
           if (canSendAlert(symbol, 'buy', now, price)) {
             inPositions[symbol] = { symbol, buyPrice: price, buyTime: timeNow, supports: [] };
@@ -171,10 +173,12 @@ async function analyze() {
             sendTelegramMessage(
               `🟢 إشــارة شــراء جديدة\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price}\n📅 الوقت: ${timeStr}`
             );
+            alertSentForSymbol = true;
           } else {
             console.log(`تم منع إرسال تنبيه شراء لـ ${symbol} بسبب شرط الـ cooldown`);
           }
-        } else if (sellSignal) {
+        } 
+        else if (!alertSentForSymbol && sellSignal) {
           console.log(`إشارة بيع تدعيم للرمز ${symbol} عند السعر ${price}`);
           if (canSendAlert(symbol, 'sell', now, price)) {
             const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)].reduce((a, b) => a + b) / (1 + position.supports.length);
@@ -197,10 +201,12 @@ async function analyze() {
             sendTelegramMessage(message);
             delete inPositions[symbol];
             savePositions(inPositions);
+            alertSentForSymbol = true;
           } else {
             console.log(`تم منع إرسال تنبيه بيع تدعيم لـ ${symbol} بسبب شرط الـ cooldown`);
           }
-        } else if (sellRegularSignal) {
+        } 
+        else if (!alertSentForSymbol && sellRegularSignal) {
           console.log(`إشارة بيع عادي للرمز ${symbol} عند السعر ${price}`);
           if (canSendAlert(symbol, 'sellRegular', now, price)) {
             const changePercent = ((price - position.buyPrice) / position.buyPrice * 100).toFixed(2);
@@ -216,10 +222,12 @@ async function analyze() {
             sendTelegramMessage(message);
             delete inPositions[symbol];
             savePositions(inPositions);
+            alertSentForSymbol = true;
           } else {
             console.log(`تم منع إرسال تنبيه بيع عادي لـ ${symbol} بسبب شرط الـ cooldown`);
           }
-        } else if (position &&
+        } 
+        else if (!alertSentForSymbol && position &&
           price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) &&
           buySignal) {
           const lastSupport = position.supports[position.supports.length - 1];
@@ -232,6 +240,7 @@ async function analyze() {
               sendTelegramMessage(
                 `🟠 تــدعيـم للشراء\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price}\n📅 الوقت: ${timeStr}`
               );
+              alertSentForSymbol = true;
             } else {
               console.log(`تم منع إرسال تنبيه تدعيم لـ ${symbol} بسبب شرط الـ cooldown`);
             }
