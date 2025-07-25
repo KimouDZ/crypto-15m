@@ -4,11 +4,16 @@ import cron from 'node-cron';
 import ccxt from 'ccxt';
 import technicalindicators from 'technicalindicators';
 import { DateTime } from 'luxon';
+import { v4 as uuidv4 } from 'uuid'; // تحتاج تثبيت uuid عبر npm install uuid
 
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
 const CHAT_IDS = ['1055739217'];
 const exchange = new ccxt.binance();
 const PRICE_DROP_SUPPORT = 0.015;
+
+// معرف فريد لكل تشغيل للتمييز بين نسخ البرنامج المختلفة
+const RUN_ID = uuidv4();
+console.log(`🚀 بدء تشغيل البرنامج بمعرف ${RUN_ID}`);
 
 function loadPositions() {
   try {
@@ -23,7 +28,7 @@ function savePositions(data) {
   try {
     fs.writeFileSync('positions.json', JSON.stringify(data, null, 2), 'utf-8');
   } catch (error) {
-    console.error('خطأ في حفظ المراكز:', error.message);
+    console.error(`⚠️ [${RUN_ID}] خطأ في حفظ المراكز:`, error.message);
   }
 }
 
@@ -34,11 +39,13 @@ let dailyProfits = {};
 // تخزين وقت انتهاء صلاحية التنبيه لكل عملة
 let alertSentUntil = {};
 
+// مدة الكولداون (فاصل منع إرسال تنبيه مكرر)
 const ALERT_COOLDOWN_MS = 60 * 1000; // 60 ثانية
 
 function sendTelegramMessage(message) {
   for (const chatId of CHAT_IDS) {
-    console.log(`⚡️ إرسال رسالة إلى ${chatId} في الوقت ${new Date().toISOString()}`);
+    const nowIso = new Date().toISOString();
+    console.log(`[${nowIso}] [${RUN_ID}] ⚡️ إرسال رسالة إلى ${chatId}`);
     axios
       .post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
         chat_id: chatId,
@@ -46,10 +53,10 @@ function sendTelegramMessage(message) {
         parse_mode: 'Markdown',
       })
       .then(() => {
-        console.log(`✅ تم إرسال الرسالة بنجاح إلى ${chatId}`);
+        console.log(`[${nowIso}] [${RUN_ID}] ✅ تم إرسال الرسالة بنجاح إلى ${chatId}`);
       })
       .catch((error) => {
-        console.error(`❌ فشل إرسال الرسالة إلى ${chatId}:`, error.message);
+        console.error(`[${nowIso}] [${RUN_ID}] ❌ فشل إرسال الرسالة إلى ${chatId}:`, error.message);
       });
   }
 }
@@ -61,7 +68,7 @@ function roundPrice(price) {
 function canSendAlert(symbol, currentTime) {
   if (alertSentUntil[symbol] && currentTime < alertSentUntil[symbol]) {
     console.log(
-      `🚫 تم منع التنبيه مؤقتًا لـ ${symbol} حتى ${new Date(alertSentUntil[symbol]).toISOString()}`
+      `[${new Date(currentTime).toISOString()}] [${RUN_ID}] 🚫 تم منع التنبيه مؤقتًا لـ ${symbol} حتى ${new Date(alertSentUntil[symbol]).toISOString()}`
     );
     return false;
   }
@@ -71,7 +78,8 @@ function canSendAlert(symbol, currentTime) {
 }
 
 function formatDate(date) {
-  const offsetDate = new Date(date.getTime() + 60 * 60 * 1000); // GMT+1
+  // ضبط التوقيت +01 GMT
+  const offsetDate = new Date(date.getTime() + 60 * 60 * 1000);
   return offsetDate.toISOString().replace('T', ' ').slice(0, 19);
 }
 
@@ -102,7 +110,7 @@ function calculatePercentB(closes, period = 20, stdDev = 2) {
   });
 }
 
-// قفل لمنع تداخل استدعاءات analyze
+// قفل لمنع تداخل استدعاءات التحليل
 let isAnalyzing = false;
 
 async function analyze() {
@@ -121,7 +129,7 @@ async function analyze() {
     for (const symbol of coins) {
       console.log(`🔍 جاري تحليل العملة: ${symbol}`);
 
-      let alertSentForSymbol = false; // منع إرسال أكثر من تنبيه خلال نفس دورة التحليل
+      let alertSentForSymbol = false; // لمنع إرسال أكثر من تنبيه خلال نفس دورة التحليل
 
       try {
         const ohlcv = await exchange.fetchOHLCV(symbol, '15m');
@@ -178,7 +186,7 @@ async function analyze() {
 
         if (!alertSentForSymbol && buySignal) {
           if (canSendAlert(symbol, now)) {
-            console.log(`💚 [${timeStr}] إشارة شراء للرمز ${symbol} عند السعر ${price}`);
+            console.log(`💚 [${timeStr}] إشارة شراء للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
             inPositions[symbol] = {
               symbol,
               buyPrice: price,
@@ -193,15 +201,13 @@ async function analyze() {
           }
         } else if (!alertSentForSymbol && sellSignal) {
           if (canSendAlert(symbol, now)) {
-            console.log(
-              `🔴 [${timeStr}] إشارة بيع تدعيم للرمز ${symbol} عند السعر ${price}`
-            );
+            console.log(`🔴 [${timeStr}] إشارة بيع تدعيم للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
             const avgBuy =
-              ([position.buyPrice, ...position.supports.map((s) => s.price)].reduce(
+              [position.buyPrice, ...position.supports.map((s) => s.price)].reduce(
                 (a, b) => a + b
               ) /
-                (1 + position.supports.length));
-            const changePercent = ((price - avgBuy) / avgBuy) * 100;
+              (1 + position.supports.length);
+            const changePercent = ((price - avgBuy) / avgBuy * 100).toFixed(2);
             const profit = price - avgBuy;
             const dateStr = timeNow.toISOString().slice(0, 10);
 
@@ -225,7 +231,7 @@ async function analyze() {
 
             message += `💸 سعر البيع: ${price}\n📅 وقت البيع: ${timeStr}\n\n📊 الربح/الخسارة: ${
               changePercent > 0 ? '+' : ''
-            }${changePercent.toFixed(2)}%`;
+            }${changePercent}%`;
             sendTelegramMessage(message);
             delete inPositions[symbol];
             savePositions(inPositions);
@@ -233,10 +239,11 @@ async function analyze() {
           }
         } else if (!alertSentForSymbol && sellRegularSignal) {
           if (canSendAlert(symbol, now)) {
-            console.log(
-              `🔴 [${timeStr}] إشارة بيع عادي للرمز ${symbol} عند السعر ${price}`
-            );
-            const changePercent = ((price - position.buyPrice) / position.buyPrice) * 100;
+            console.log(`🔴 [${timeStr}] إشارة بيع عادي للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
+            const changePercent = (
+              ((price - position.buyPrice) / position.buyPrice) *
+              100
+            ).toFixed(2);
             const profit = price - position.buyPrice;
             const dateStr = timeNow.toISOString().slice(0, 10);
 
@@ -251,7 +258,7 @@ async function analyze() {
               { minimumFractionDigits: 2, maximumFractionDigits: 2 }
             )}\n📅 وقت الشراء: ${formatDate(position.buyTime)}\n\n💸 سعر البيع: ${price}\n📅 وقت البيع: ${timeStr}\n\n📊 الربح/الخسارة: ${
               changePercent > 0 ? '+' : ''
-            }${changePercent.toFixed(2)}%`;
+            }${changePercent}%`;
             sendTelegramMessage(message);
             delete inPositions[symbol];
             savePositions(inPositions);
@@ -263,13 +270,12 @@ async function analyze() {
           price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) &&
           buySignal
         ) {
-          const lastSupport = position.supports[position.supports.length - 1];
+          const lastSupport =
+            position.supports[position.supports.length - 1];
           const basePrice = lastSupport ? lastSupport.price : position.buyPrice;
           if (price <= basePrice * (1 - PRICE_DROP_SUPPORT)) {
             if (canSendAlert(symbol, now)) {
-              console.log(
-                `🟠 [${timeStr}] إشارة تدعيم شراء للرمز ${symbol} عند السعر ${price}`
-              );
+              console.log(`🟠 [${timeStr}] إشارة تدعيم شراء للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
               position.supports.push({ price, time: timeNow });
               savePositions(inPositions);
               sendTelegramMessage(
@@ -284,7 +290,7 @@ async function analyze() {
       }
     }
   } catch (error) {
-    console.error('⚠️ خطأ في قراءة coins.json أو أثناء التحليل:', error.message);
+    console.error(`⚠️ خطأ في قراءة coins.json أو أثناء التحليل: ${error.message}`);
   } finally {
     isAnalyzing = false;
   }
@@ -292,7 +298,7 @@ async function analyze() {
 
 cron.schedule('*/2 * * * *', async () => {
   try {
-    console.log('⏳ جاري التحليل...');
+    console.log(`⏳ جاري التحليل... [RUN_ID: ${RUN_ID}]`);
     await analyze();
   } catch (error) {
     console.error('⚠️ خطأ أثناء التحليل:', error);
