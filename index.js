@@ -52,8 +52,9 @@ function roundPrice(price) {
   return Math.round(price * 100) / 100;
 }
 
+// قللنا فترة الـ cooldown من 60 ثانية إلى 10 ثواني مؤقتاً لمراقبة التنبيهات
 function canSendAlert(symbol, type, currentTime, price) {
-  const COOLDOWN = 60 * 1000; // دقيقة واحدة
+  const COOLDOWN = 10 * 1000; // 10 ثواني
 
   if (!lastAlertsTime[symbol]) {
     lastAlertsTime[symbol] = {};
@@ -117,13 +118,14 @@ async function analyze() {
   try {
     const coins = JSON.parse(fs.readFileSync('coins.json'));
 
-    // عرض بداية التحليل وقائمة العملات
     console.log(`بدء تحليل العملات: ${coins.join(', ')}`);
+
+    // رسالة تجريبية عند بدء التحليل (يمكن حذفها لاحقاً)
+    sendTelegramMessage(`🚀 بدء تحليل جديد للعملات: ${coins.join(', ')}`);
 
     const now = Date.now();
 
     for (const symbol of coins) {
-      // عرض العملة التي يجري تحليلها حالياً
       console.log(`جاري تحليل العملة: ${symbol}`);
 
       try {
@@ -168,15 +170,23 @@ async function analyze() {
           rsiVal > 55 &&
           prevMacdHistSell > 0 && macdHistSell < 0;
 
+        console.log(`قيم المؤشرات لـ ${symbol} => RSI: ${rsiVal.toFixed(2)}, PercentB: ${pbVal.toFixed(2)}, ` +
+          `MACDBuyHist: ${macdHistBuy?.toFixed(4)}, PrevMACDBuyHist: ${prevMacdHistBuy?.toFixed(4)}, ` +
+          `MACDSellHist: ${macdHistSell?.toFixed(4)}, PrevMACDSellHist: ${prevMacdHistSell?.toFixed(4)}`);
+
         if (buySignal) {
+          console.log(`إشارة شراء للرمز ${symbol} عند السعر ${price}`);
           if (canSendAlert(symbol, 'buy', now, price)) {
             inPositions[symbol] = { symbol, buyPrice: price, buyTime: timeNow, supports: [] };
             savePositions(inPositions);
             sendTelegramMessage(
               `🟢 إشــارة شــراء جديدة\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price}\n📅 الوقت: ${timeStr}`
             );
+          } else {
+            console.log(`تم منع إرسال تنبيه شراء لـ ${symbol} بسبب شرط الـ cooldown`);
           }
         } else if (sellSignal) {
+          console.log(`إشارة بيع تدعيم للرمز ${symbol} عند السعر ${price}`);
           if (canSendAlert(symbol, 'sell', now, price)) {
             const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)].reduce((a, b) => a + b) / (1 + position.supports.length);
             const changePercent = ((price - avgBuy) / avgBuy * 100).toFixed(2);
@@ -198,8 +208,11 @@ async function analyze() {
             sendTelegramMessage(message);
             delete inPositions[symbol];
             savePositions(inPositions);
+          } else {
+            console.log(`تم منع إرسال تنبيه بيع تدعيم لـ ${symbol} بسبب شرط الـ cooldown`);
           }
         } else if (sellRegularSignal) {
+          console.log(`إشارة بيع عادي للرمز ${symbol} عند السعر ${price}`);
           if (canSendAlert(symbol, 'sellRegular', now, price)) {
             const changePercent = ((price - position.buyPrice) / position.buyPrice * 100).toFixed(2);
             const profit = price - position.buyPrice;
@@ -214,6 +227,8 @@ async function analyze() {
             sendTelegramMessage(message);
             delete inPositions[symbol];
             savePositions(inPositions);
+          } else {
+            console.log(`تم منع إرسال تنبيه بيع عادي لـ ${symbol} بسبب شرط الـ cooldown`);
           }
         } else if (position &&
           price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) &&
@@ -221,12 +236,15 @@ async function analyze() {
           const lastSupport = position.supports[position.supports.length - 1];
           const basePrice = lastSupport ? lastSupport.price : position.buyPrice;
           if (price <= basePrice * (1 - PRICE_DROP_SUPPORT)) {
+            console.log(`إشارة تدعيم شراء للرمز ${symbol} عند السعر ${price}`);
             if (canSendAlert(symbol, 'support', now, price)) {
               position.supports.push({ price, time: timeNow });
               savePositions(inPositions);
               sendTelegramMessage(
                 `🟠 تــدعيـم للشراء\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price}\n📅 الوقت: ${timeStr}`
               );
+            } else {
+              console.log(`تم منع إرسال تنبيه تدعيم لـ ${symbol} بسبب شرط الـ cooldown`);
             }
           }
         }
