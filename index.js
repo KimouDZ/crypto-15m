@@ -106,15 +106,7 @@ function calculatePercentB(closes, period = 20, stdDev = 2) {
   });
 }
 
-let isAnalyzing = false;
-
 async function analyze() {
-  if (isAnalyzing) {
-    console.log("تحليل قيد التنفيذ، تخطي هذه الدورة.");
-    return;
-  }
-  isAnalyzing = true;
-
   try {
     const coins = JSON.parse(fs.readFileSync('coins.json'));
 
@@ -253,24 +245,17 @@ async function analyze() {
         console.error(`خطأ في تحليل ${symbol}:`, error.message);
       }
     }
-  } finally {
-    isAnalyzing = false;
+  } catch (error) {
+    console.error("خطأ في قراءة coins.json أو أثناء التحليل:", error.message);
   }
 }
 
 cron.schedule('*/2 * * * *', async () => {
-  if (isAnalyzing) {
-    console.log("تحليل قيد التنفيذ، تخطي هذه الدورة.");
-    return;
-  }
   try {
-    isAnalyzing = true;
     console.log("جاري التحليل...");
     await analyze();
   } catch (error) {
     console.error("خطأ أثناء التحليل:", error);
-  } finally {
-    isAnalyzing = false;
   }
 });
 
