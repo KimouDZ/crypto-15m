@@ -10,7 +10,6 @@ const CHAT_IDS = ['1055739217'];
 const exchange = new ccxt.binance();
 const PRICE_DROP_SUPPORT = 0.015;
 
-// تحميل المراكز عند بدء التشغيل
 function loadPositions() {
   try {
     const data = fs.readFileSync('positions.json', 'utf-8');
@@ -20,7 +19,6 @@ function loadPositions() {
   }
 }
 
-// حفظ المراكز إلى ملف JSON
 function savePositions(data) {
   try {
     fs.writeFileSync('positions.json', JSON.stringify(data, null, 2), 'utf-8');
@@ -30,12 +28,13 @@ function savePositions(data) {
 }
 
 let inPositions = loadPositions();
-let lastAlertsTime = {};
 let percentBPassed = {};
 let dailyProfits = {};
 
-// قفل لمنع استدعاء analyze متزامن
-let isAnalyzing = false;
+// تخزين وقت انتهاء صلاحية التنبيه لكل عملة
+let alertSentUntil = {};
+
+const ALERT_COOLDOWN_MS = 60 * 1000; // 60 ثانية
 
 function sendTelegramMessage(message) {
   for (const chatId of CHAT_IDS) {
@@ -55,22 +54,13 @@ function roundPrice(price) {
   return Math.round(price * 100) / 100;
 }
 
-// دالة canSendAlert تعتمد فقط على العملة والوقت لفاصل 30 ثانية (COOLDOWN)
 function canSendAlert(symbol, currentTime) {
-  const COOLDOWN = 30 * 1000; // 30 ثانية
-
-  if (!lastAlertsTime[symbol]) {
-    lastAlertsTime[symbol] = 0;
-  }
-
-  const lastTime = lastAlertsTime[symbol];
-
-  if (lastTime && currentTime - lastTime < COOLDOWN) {
-    console.log(`منع تنبيه لـ ${symbol} بسبب الكولداون (${(currentTime - lastTime) / 1000}s < 30s)`);
+  if (alertSentUntil[symbol] && currentTime < alertSentUntil[symbol]) {
+    console.log(`تم منع التنبيه مؤقتًا لـ ${symbol} حتى ${new Date(alertSentUntil[symbol]).toISOString()}`);
     return false;
   }
 
-  lastAlertsTime[symbol] = currentTime;
+  alertSentUntil[symbol] = currentTime + ALERT_COOLDOWN_MS;
   return true;
 }
 
@@ -106,15 +96,18 @@ function calculatePercentB(closes, period = 20, stdDev = 2) {
   });
 }
 
+// قفل لمنع تداخل استدعاءات analyze
+let isAnalyzing = false;
+
 async function analyze() {
   if (isAnalyzing) {
     console.log('📌 تحليل جاري، يتم تجاهل استدعاء analyze جديد');
     return;
   }
   isAnalyzing = true;
+
   try {
     const coins = JSON.parse(fs.readFileSync('coins.json'));
-
     console.log(`🚀 بدء تحليل العملات: ${coins.join(', ')}`);
 
     const now = Date.now();
@@ -122,7 +115,7 @@ async function analyze() {
     for (const symbol of coins) {
       console.log(`🔍 جاري تحليل العملة: ${symbol}`);
 
-      let alertSentForSymbol = false; // ضمان إرسال تنبيه واحد فقط لكل عملة خلال دورة التحليل
+      let alertSentForSymbol = false; // لمنع إرسال أكثر من تنبيه لنفس العملة في دورة التحليل الواحدة
 
       try {
         const ohlcv = await exchange.fetchOHLCV(symbol, '15m');
@@ -196,9 +189,7 @@ async function analyze() {
           if (canSendAlert(symbol, now)) {
             console.log(`🔴 [${timeStr}] إشارة بيع تدعيم للرمز ${symbol} عند السعر ${price}`);
             const avgBuy =
-              [position.buyPrice, ...position.supports.map((s) => s.price)].reduce(
-                (a, b) => a + b
-              ) /
+              [position.buyPrice, ...position.supports.map((s) => s.price)].reduce((a, b) => a + b) /
               (1 + position.supports.length);
             const changePercent = ((price - avgBuy) / avgBuy * 100).toFixed(2);
             const profit = price - avgBuy;
@@ -233,10 +224,7 @@ async function analyze() {
         } else if (!alertSentForSymbol && sellRegularSignal) {
           if (canSendAlert(symbol, now)) {
             console.log(`🔴 [${timeStr}] إشارة بيع عادي للرمز ${symbol} عند السعر ${price}`);
-            const changePercent = (
-              ((price - position.buyPrice) / position.buyPrice) *
-              100
-            ).toFixed(2);
+            const changePercent = ((price - position.buyPrice) / position.buyPrice * 100).toFixed(2);
             const profit = price - position.buyPrice;
             const dateStr = timeNow.toISOString().slice(0, 10);
 
@@ -263,8 +251,7 @@ async function analyze() {
           price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) &&
           buySignal
         ) {
-          const lastSupport =
-            position.supports[position.supports.length - 1];
+          const lastSupport = position.supports[position.supports.length - 1];
           const basePrice = lastSupport ? lastSupport.price : position.buyPrice;
           if (price <= basePrice * (1 - PRICE_DROP_SUPPORT)) {
             if (canSendAlert(symbol, now)) {
@@ -299,7 +286,6 @@ cron.schedule('*/2 * * * *', async () => {
 });
 
 cron.schedule('0 * * * *', async () => {
-  // تحقق من منتصف الليل بتوقيت الجزائر
   const nowInAlgiers = DateTime.now().setZone('Africa/Algiers');
 
   if (nowInAlgiers.hour === 0 && nowInAlgiers.minute === 0) {
@@ -308,7 +294,6 @@ cron.schedule('0 * * * *', async () => {
 
     const report = dailyProfits[dateStr];
 
-    // حساب تقرير الصفقات المفتوحة
     let openPositionsReport = '';
 
     for (const symbol in inPositions) {
@@ -322,9 +307,7 @@ cron.schedule('0 * * * *', async () => {
             position.supports.reduce((a, s) => a + s.price, 0)) /
           (1 + position.supports.length);
 
-        const percentChange = ((currentPrice - avgBuy) / avgBuy * 100).toFixed(
-          2
-        );
+        const percentChange = ((currentPrice - avgBuy) / avgBuy * 100).toFixed(2);
 
         openPositionsReport += `\n- ${symbol}: السعر الحالي ${currentPrice.toFixed(
           2
