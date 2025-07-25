@@ -9,6 +9,7 @@
     "start": "node index.js"
   },
   "dependencies": {
+      "node-cron": "^2.3.0",
     "axios": "^1.4.0",
     "ccxt": "^2.0.98",
     "cron": "^2.3.0",
