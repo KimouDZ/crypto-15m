@@ -1,3 +1,4 @@
+
 import fs from 'fs';
 import axios from 'axios';
 import cron from 'node-cron';
@@ -59,10 +60,6 @@ function sendTelegramMessage(message) {
         console.error(`[${nowIso}] [${RUN_ID}] ❌ فشل إرسال الرسالة إلى ${chatId}:`, error.message);
       });
   }
-}
-
-function roundPrice(price) {
-  return Math.round(price * 100) / 100;
 }
 
 function canSendAlert(symbol, currentTime) {
@@ -143,7 +140,7 @@ async function analyze() {
 
         const lastIndex = closes.length - 1;
         const priceRaw = closes[lastIndex];
-        const price = roundPrice(priceRaw);
+        const price = priceRaw; // السعر الخام بدون تقريب
         const timeNow = new Date();
         const timeStr = formatDate(timeNow);
 
