@@ -9,7 +9,7 @@ import { DateTime } from 'luxon';
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
 const CHAT_IDS = ['1055739217'];
 const exchange = new ccxt.binance();
-const PRICE_DROP_SUPPORT = 0.015;
+const PRICE_DROP_SUPPORT = 0.017;
 
 // تحميل المراكز عند بدء التشغيل
 function loadPositions() {
