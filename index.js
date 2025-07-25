@@ -1,4 +1,3 @@
-
 import fs from 'fs';
 import axios from 'axios';
 import cron from 'node-cron';
@@ -9,7 +8,7 @@ import { DateTime } from 'luxon';
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
 const CHAT_IDS = ['1055739217'];
 const exchange = new ccxt.binance();
-const PRICE_DROP_SUPPORT = 0.017;
+const PRICE_DROP_SUPPORT = 0.015;
 
 // تحميل المراكز عند بدء التشغيل
 function loadPositions() {
@@ -52,25 +51,25 @@ function roundPrice(price) {
   return Math.round(price * 100) / 100;
 }
 
-// قللنا فترة الـ cooldown من 60 ثانية إلى 10 ثواني مؤقتاً لمراقبة التنبيهات
-function canSendAlert(symbol, type, currentTime, price) {
-  const COOLDOWN = 10 * 1000; // 10 ثواني
+// تعديل canSendAlert لتحقق بناءً على العملة فقط (بدون النوع)
+function canSendAlert(symbol, currentTime, price) {
+  const COOLDOWN = 10 * 1000; // 10 ثواني cooldown
 
   if (!lastAlertsTime[symbol]) {
-    lastAlertsTime[symbol] = {};
-    lastAlertPrice[symbol] = {};
+    lastAlertsTime[symbol] = 0;
+    lastAlertPrice[symbol] = 0;
   }
 
-  const lastTime = lastAlertsTime[symbol][type];
-  const lastPrice = lastAlertPrice[symbol][type];
+  const lastTime = lastAlertsTime[symbol];
+  const lastPrice = lastAlertPrice[symbol];
   const roundedPrice = roundPrice(price);
 
   if (lastTime && lastPrice === roundedPrice && (currentTime - lastTime) < COOLDOWN) {
     return false;
   }
 
-  lastAlertsTime[symbol][type] = currentTime;
-  lastAlertPrice[symbol][type] = roundedPrice;
+  lastAlertsTime[symbol] = currentTime;
+  lastAlertPrice[symbol] = roundedPrice;
   return true;
 }
 
@@ -110,8 +109,6 @@ async function analyze() {
   try {
     const coins = JSON.parse(fs.readFileSync('coins.json'));
 
-    console.log(`بدء تحليل العملات: ${coins.join(', ')}`);
-
     // تم حذف رسالة بدء التحليل حسب طلبك
 
     const now = Date.now();
@@ -119,7 +116,7 @@ async function analyze() {
     for (const symbol of coins) {
       console.log(`جاري تحليل العملة: ${symbol}`);
 
-      let alertSentForSymbol = false; // متغير لتعقب التنبيه المرسل لأي نوع للرمز خلال الدورة الحالية
+      let alertSentForSymbol = false; // لضمان تنبيه واحد فقط لكل عملة
 
       try {
         const ohlcv = await exchange.fetchOHLCV(symbol, '15m');
@@ -163,10 +160,9 @@ async function analyze() {
           rsiVal > 55 &&
           prevMacdHistSell > 0 && macdHistSell < 0;
 
-        // منع إرسال أكثر من تنبيه لنفس العملة خلال هذه الدورة:
         if (!alertSentForSymbol && buySignal) {
           console.log(`إشارة شراء للرمز ${symbol} عند السعر ${price}`);
-          if (canSendAlert(symbol, 'buy', now, price)) {
+          if (canSendAlert(symbol, now, price)) {
             inPositions[symbol] = { symbol, buyPrice: price, buyTime: timeNow, supports: [] };
             savePositions(inPositions);
             sendTelegramMessage(
@@ -176,10 +172,10 @@ async function analyze() {
           } else {
             console.log(`تم منع إرسال تنبيه شراء لـ ${symbol} بسبب شرط الـ cooldown`);
           }
-        }
+        } 
         else if (!alertSentForSymbol && sellSignal) {
           console.log(`إشارة بيع تدعيم للرمز ${symbol} عند السعر ${price}`);
-          if (canSendAlert(symbol, 'sell', now, price)) {
+          if (canSendAlert(symbol, now, price)) {
             const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)].reduce((a, b) => a + b) / (1 + position.supports.length);
             const changePercent = ((price - avgBuy) / avgBuy * 100).toFixed(2);
             const profit = price - avgBuy;
@@ -204,10 +200,10 @@ async function analyze() {
           } else {
             console.log(`تم منع إرسال تنبيه بيع تدعيم لـ ${symbol} بسبب شرط الـ cooldown`);
           }
-        }
+        } 
         else if (!alertSentForSymbol && sellRegularSignal) {
           console.log(`إشارة بيع عادي للرمز ${symbol} عند السعر ${price}`);
-          if (canSendAlert(symbol, 'sellRegular', now, price)) {
+          if (canSendAlert(symbol, now, price)) {
             const changePercent = ((price - position.buyPrice) / position.buyPrice * 100).toFixed(2);
             const profit = price - position.buyPrice;
             const dateStr = timeNow.toISOString().slice(0, 10);
@@ -225,7 +221,7 @@ async function analyze() {
           } else {
             console.log(`تم منع إرسال تنبيه بيع عادي لـ ${symbol} بسبب شرط الـ cooldown`);
           }
-        }
+        } 
         else if (!alertSentForSymbol && position &&
           price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) &&
           buySignal) {
@@ -233,7 +229,7 @@ async function analyze() {
           const basePrice = lastSupport ? lastSupport.price : position.buyPrice;
           if (price <= basePrice * (1 - PRICE_DROP_SUPPORT)) {
             console.log(`إشارة تدعيم شراء للرمز ${symbol} عند السعر ${price}`);
-            if (canSendAlert(symbol, 'support', now, price)) {
+            if (canSendAlert(symbol, now, price)) {
               position.supports.push({ price, time: timeNow });
               savePositions(inPositions);
               sendTelegramMessage(
