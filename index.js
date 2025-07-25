@@ -112,8 +112,7 @@ async function analyze() {
 
     console.log(`بدء تحليل العملات: ${coins.join(', ')}`);
 
-    // رسالة تجريبية عند بدء التحليل (يمكن حذفها لاحقاً)
-    sendTelegramMessage(`🚀 بدء تحليل جديد للعملات: ${coins.join(', ')}`);
+    // تم حذف إرسال رسالة بدء التحليل على التليجرام حسب طلبك
 
     const now = Date.now();
 
@@ -162,9 +161,7 @@ async function analyze() {
           rsiVal > 55 &&
           prevMacdHistSell > 0 && macdHistSell < 0;
 
-        console.log(`قيم المؤشرات لـ ${symbol} => RSI: ${rsiVal.toFixed(2)}, PercentB: ${pbVal.toFixed(2)}, ` +
-          `MACDBuyHist: ${macdHistBuy?.toFixed(4)}, PrevMACDBuyHist: ${prevMacdHistBuy?.toFixed(4)}, ` +
-          `MACDSellHist: ${macdHistSell?.toFixed(4)}, PrevMACDSellHist: ${prevMacdHistSell?.toFixed(4)}`);
+        // حذف طباعة قيم المؤشرات بناء على طلبك
 
         if (buySignal) {
           console.log(`إشارة شراء للرمز ${symbol} عند السعر ${price}`);
@@ -259,7 +256,7 @@ cron.schedule('*/2 * * * *', async () => {
   }
 });
 
-cron.schedule('0 * * * *', () => {
+cron.schedule('0 * * * *', async () => {
   // تحقق من منتصف الليل بتوقيت الجزائر
   const nowInAlgiers = DateTime.now().setZone('Africa/Algiers');
 
@@ -268,12 +265,38 @@ cron.schedule('0 * * * *', () => {
     const dateStr = yesterday.toISODate();
 
     const report = dailyProfits[dateStr];
+
+    // حساب تقرير الصفقات المفتوحة
+    let openPositionsReport = '';
+
+    for (const symbol in inPositions) {
+      try {
+        const ticker = await exchange.fetchTicker(symbol);
+        const currentPrice = ticker.last;
+        const position = inPositions[symbol];
+
+        const avgBuy = [position.buyPrice, ...position.supports.map(s => s.price)].reduce((a, b) => a + b, 0) / (1 + position.supports.length);
+        const percentChange = ((currentPrice - avgBuy) / avgBuy * 100).toFixed(2);
+
+        openPositionsReport += `\n- ${symbol}: السعر الحالي ${currentPrice.toFixed(2)}، نسبة الربح/الخسارة الحالية: ${percentChange}%`;
+      } catch (error) {
+        openPositionsReport += `\n- ${symbol}: لم أتمكن من جلب السعر الحالي (${error.message})`;
+      }
+    }
+
     if (report) {
-      const message = `📊 تقرير الأرباح ليوم ${dateStr}:\n💰 إجمالي الربح/الخسارة: ${report.totalProfit.toFixed(8)} وحدة نقدية\n✅ عدد الصفقات الرابحة: ${report.wins}\n❌ عدد الصفقات الخاسرة: ${report.losses}`;
+      const message =
+        `📊 تقرير الأرباح ليوم ${dateStr}:\n` +
+        `💰 إجمالي الربح/الخسارة: ${report.totalProfit.toFixed(8)} وحدة نقدية\n` +
+        `✅ عدد الصفقات الرابحة: ${report.wins}\n` +
+        `❌ عدد الصفقات الخاسرة: ${report.losses}\n` +
+        `\n📈 الصفقات المفتوحة:\n${openPositionsReport || 'لا توجد صفقات مفتوحة.'}`;
+
       sendTelegramMessage(message);
       delete dailyProfits[dateStr];
     } else {
-      sendTelegramMessage(`📊 تقرير الأرباح ليوم ${dateStr}:\nلم يتم تسجيل أي صفقة.`);
+      const message = `📊 تقرير الأرباح ليوم ${dateStr}:\nلم يتم تسجيل أي صفقة.\n\n📈 الصفقات المفتوحة:\n${openPositionsReport || 'لا توجد صفقات مفتوحة.'}`;
+      sendTelegramMessage(message);
     }
   }
 });
