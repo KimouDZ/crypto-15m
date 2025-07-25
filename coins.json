@@ -4,7 +4,6 @@
   "BNB/USDT",
   "ADA/USDT",
   "SOL/USDT",
-  
   "XRP/USDT",
   "DOGE/USDT",
   "DOT/USDT",
@@ -24,7 +23,6 @@
   "ALGO/USDT",
   "EOS/USDT",
   "THETA/USDT",
-  
   "XTZ/USDT",
   "NEO/USDT",
   "KLAY/USDT",
@@ -52,14 +50,12 @@
   "ICX/USDT",
   "ONT/USDT",
   "BTG/USDT",
-  
   "BTT/USDT",
   "ONE/USDT",
   "CEL/USDT",
   "LRC/USDT",
   "SNX/USDT",
   "SC/USDT",
- 
   "OCEAN/USDT",
   "REN/USDT",
   "1INCH/USDT",
@@ -67,7 +63,6 @@
   "NEXO/USDT",
   "CRV/USDT",
   "AMP/USDT",
- 
   "KNC/USDT",
   "DENT/USDT",
   "XVG/USDT",
@@ -76,36 +71,25 @@
   "GRT/USDT",
   "TWT/USDT",
   "VTHO/USDT",
- 
   "MATIC/USDT",
   "SHIB/USDT",
   "MDX/USDT",
-  
   "SRM/USDT",
   "BEL/USDT",
   "WRX/USDT",
   "COTI/USDT",
   "OXT/USDT",
-  
-  
   "FRONT/USDT",
   "DODO/USDT",
   "PERP/USDT",
   "LINA/USDT",
   "ZRX/USDT",
   "ALPHA/USDT",
-  
-  
-  
   "SUPER/USDT",
-  
-  
   "MANA/USDT",
   "KSM/USDT",
   "STX/USDT",
   "OMG/USDT",
-  
-  
   "GALA/USDT",
   "SFP/USDT",
   "XVS/USDT",
@@ -115,24 +99,15 @@
   "TKO/USDT",
   "LIT/USDT",
   "PERL/USDT",
-  
   "DUSK/USDT",
-  
   "CTK/USDT",
   "ANY/USDT",
   "MOVR/USDT",
   "ANT/USDT",
   "OGN/USDT",
-  
-  
-  "DEGO/USDT",
-  
   "TVK/USDT",
- 
-  "TON/USDT",
-  
+  "TON/USDT", 
   "OM/USDT",
-  
   "RSR/USDT",
   "CTSI/USDT",
   "FLOW/USDT",
@@ -141,4 +116,4 @@
   "CVX/USDT",
   "RUNE/USDT",
   "FTT/USDT",
-
+]
