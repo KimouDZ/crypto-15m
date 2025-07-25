@@ -1,8 +1,10 @@
+
 {
   "name": "crypto-alert-bot",
   "version": "1.0.0",
   "description": "بوت تنبيهات تداول العملات الرقمية مع telegram و ccxt",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
