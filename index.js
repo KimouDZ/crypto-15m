@@ -112,14 +112,14 @@ async function analyze() {
 
     console.log(`بدء تحليل العملات: ${coins.join(', ')}`);
 
-    // تم حذف إرسال رسالة بدء التحليل على التليجرام حسب طلبك
+    // تم حذف رسالة بدء التحليل حسب طلبك
 
     const now = Date.now();
 
     for (const symbol of coins) {
       console.log(`جاري تحليل العملة: ${symbol}`);
 
-      let alertSentForSymbol = false; // متغير لتعقب التنبيهات المرسلة لهذا الرمز خلال دورة التحليل
+      let alertSentForSymbol = false; // متغير لتعقب التنبيه المرسل لأي نوع للرمز خلال الدورة الحالية
 
       try {
         const ohlcv = await exchange.fetchOHLCV(symbol, '15m');
@@ -163,8 +163,7 @@ async function analyze() {
           rsiVal > 55 &&
           prevMacdHistSell > 0 && macdHistSell < 0;
 
-        // حذف طباعة قيم المؤشرات بناء على طلبك
-
+        // منع إرسال أكثر من تنبيه لنفس العملة خلال هذه الدورة:
         if (!alertSentForSymbol && buySignal) {
           console.log(`إشارة شراء للرمز ${symbol} عند السعر ${price}`);
           if (canSendAlert(symbol, 'buy', now, price)) {
@@ -177,7 +176,7 @@ async function analyze() {
           } else {
             console.log(`تم منع إرسال تنبيه شراء لـ ${symbol} بسبب شرط الـ cooldown`);
           }
-        } 
+        }
         else if (!alertSentForSymbol && sellSignal) {
           console.log(`إشارة بيع تدعيم للرمز ${symbol} عند السعر ${price}`);
           if (canSendAlert(symbol, 'sell', now, price)) {
@@ -205,7 +204,7 @@ async function analyze() {
           } else {
             console.log(`تم منع إرسال تنبيه بيع تدعيم لـ ${symbol} بسبب شرط الـ cooldown`);
           }
-        } 
+        }
         else if (!alertSentForSymbol && sellRegularSignal) {
           console.log(`إشارة بيع عادي للرمز ${symbol} عند السعر ${price}`);
           if (canSendAlert(symbol, 'sellRegular', now, price)) {
@@ -226,7 +225,7 @@ async function analyze() {
           } else {
             console.log(`تم منع إرسال تنبيه بيع عادي لـ ${symbol} بسبب شرط الـ cooldown`);
           }
-        } 
+        }
         else if (!alertSentForSymbol && position &&
           price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) &&
           buySignal) {
