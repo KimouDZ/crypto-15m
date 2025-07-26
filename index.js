@@ -268,7 +268,7 @@ async function analyze() {
 }
 
 // جدولة تحليل كل دقيقتين
-cron.schedule('*/2 * * * *', async () => {
+cron.schedule('*/1 * * * *', async () => {
   try {
     console.log(`⏳ جاري التحليل... [RUN_ID: ${RUN_ID}]`);
     await analyze();
