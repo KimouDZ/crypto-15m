@@ -1,6 +1,7 @@
 {
   "name": "crypto-trading-bot",
   "version": "1.0.0",
+    "type": "module",
   "description": "بوت تداول العملات الرقمية باستخدام مؤشرات فنية وإرسال تنبيهات تلغرام",
   "main": "index.js",
   "scripts": {
