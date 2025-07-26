@@ -58,7 +58,7 @@ function sendTelegramMessage(message) {
 }
 
 function formatDate(date) {
-  const offsetDate = new Date(date.getTime() + 60 * 60 * 1000);
+  const offsetDate = new Date(date.getTime() + 60 * 60 * 1000); // +1 ساعة لتوقيت الجزائر
   return offsetDate.toISOString().replace('T', ' ').slice(0, 19);
 }
 
@@ -163,18 +163,17 @@ async function analyze() {
           dailyProfits[dateStr] = { totalProfit: 0, totalInvested: 0, wins: 0, losses: 0, trades: 0 };
         }
 
-        // شراء
+        // إشارة شراء
         if (buySignal) {
           console.log(`💚 [${timeStr}] إشارة شراء للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
           inPositions[symbol] = { symbol, buyPrice: price, buyTime: timeNow, supports: [] };
           savePositions(inPositions);
-          // زيادة رأس المال المستثمر
           dailyProfits[dateStr].totalInvested += price;
           dailyProfits[dateStr].trades++;
           sendTelegramMessage(`🟢 إشــارة شــراء جديدة\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price}\n📅 الوقت: ${timeStr}`);
         }
 
-        // بيع بدعم
+        // إشارة بيع بدعم
         else if (sellSignal) {
           console.log(`🔴 [${timeStr}] إشارة بيع تدعيم للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
           const avgBuy = (position.buyPrice + position.supports.reduce((a, s) => a + s.price, 0)) / (1 + position.supports.length);
@@ -182,10 +181,8 @@ async function analyze() {
           const profit = price - avgBuy;
 
           dailyProfits[dateStr].totalProfit += profit;
-          dailyProfits[dateStr].trades++;
-
-          // اعتبار رأس المال المستثمر كما متوسط الشراء مضروبًا بعدد الصفقات (تقديري)
           dailyProfits[dateStr].totalInvested += avgBuy;
+          dailyProfits[dateStr].trades++;
 
           if (profit > 0) dailyProfits[dateStr].wins++;
           else if (profit < 0) dailyProfits[dateStr].losses++;
@@ -213,7 +210,7 @@ async function analyze() {
           savePositions(inPositions);
         }
 
-        // بيع عادي
+        // إشارة بيع عادي
         else if (sellRegularSignal) {
           console.log(`🔴 [${timeStr}] إشارة بيع عادي للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
           const changePercent = ((price - position.buyPrice) / position.buyPrice * 100);
@@ -240,7 +237,6 @@ async function analyze() {
             supportsInfo += `➕ سعر التدعيم ${i + 1}: ${s.price}\n📅 وقت التدعيم ${i + 1}: ${formatDate(s.time)}\n\n`;
           });
 
-          // حساب الربح/الخسارة لوقف الخسارة
           const stopLossProfit = price - position.buyPrice;
           dailyProfits[dateStrStopLoss].totalProfit += stopLossProfit;
           dailyProfits[dateStrStopLoss].totalInvested += position.buyPrice;
@@ -298,23 +294,6 @@ async function analyze() {
       }
     }
 
-    // بعد إنهاء كل العملات، أرسل تقرير الأرباح اليومية مع النسبة المئوية لو أمكن
-    for (const [dateKey, stats] of Object.entries(dailyProfits)) {
-      if (stats.totalInvested > 0) {
-        const percentDailyProfit = (stats.totalProfit / stats.totalInvested) * 100;
-        const message =
-          `📅 تقرير الأرباح لليوم ${dateKey}\n` +
-          `💰 إجمالي الأرباح: ${stats.totalProfit.toFixed(6)}\n` +
-          `💵 رأس المال المستثمر: ${stats.totalInvested.toFixed(6)}\n` +
-          `📈 نسبة الربح اليومية: ${percentDailyProfit.toFixed(2)}%\n` +
-          `📊 إجمالي الصفقات: ${stats.trades}\n` +
-          `✅ الصفقات الرابحة: ${stats.wins}\n` +
-          `❌ الصفقات الخاسرة: ${stats.losses}`;
-
-        sendTelegramMessage(message);
-      }
-    }
-
   } catch (error) {
     console.error(`⚠️ خطأ في قراءة coins.json أو أثناء التحليل: ${error.message}`);
   } finally {
@@ -329,6 +308,31 @@ cron.schedule('*/1 * * * *', async () => {
     await analyze();
   } catch (error) {
     console.error('⚠️ خطأ أثناء التحليل:', error);
+  }
+});
+
+// جدولة إرسال تقرير الأرباح اليومية يوميًا عند الساعة 00:54 بتوقيت الجزائر
+// (باستخدام توقيت النظام مع إضافة الساعة +1)
+cron.schedule('54 0 * * *', () => {
+  const yesterday = new Date(Date.now() - 86400000);
+  const dateKey = yesterday.toISOString().slice(0, 10);
+
+  if (dailyProfits[dateKey]) {
+    const stats = dailyProfits[dateKey];
+    if (stats.totalInvested > 0) {
+      const percentDailyProfit = (stats.totalProfit / stats.totalInvested) * 100;
+      const message =
+        `📅 تقرير الأرباح ليوم ${dateKey}\n` +
+        `💰 إجمالي الأرباح: ${stats.totalProfit.toFixed(6)}\n` +
+        `💵 رأس المال المستثمر: ${stats.totalInvested.toFixed(6)}\n` +
+        `📈 نسبة الربح اليومية: ${percentDailyProfit.toFixed(2)}%\n` +
+        `📊 إجمالي الصفقات: ${stats.trades}\n` +
+        `✅ الصفقات الرابحة: ${stats.wins}\n` +
+        `❌ الصفقات الخاسرة: ${stats.losses}`;
+      sendTelegramMessage(message);
+    }
+  } else {
+    console.log('⌛️ لا توجد بيانات أرباح ليوم الأمس لإرسال التقرير');
   }
 });
 
