@@ -4,7 +4,6 @@ import axios from 'axios';
 import cron from 'node-cron';
 import ccxt from 'ccxt';
 import technicalindicators from 'technicalindicators';
-import { DateTime } from 'luxon';
 import { v4 as uuidv4 } from 'uuid';
 
 const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
@@ -109,7 +108,7 @@ function savePositions(data) {
 
 let inPositions = loadPositions();
 let percentBPassed = {};
-let dailyProfits = {};
+let dailyProfits = {}; // لتخزين الربح، رأس المال، عدد الصفقات لكل يوم
 
 let isAnalyzing = false;
 
@@ -141,6 +140,7 @@ async function analyze() {
         const price = closes[lastIndex];
         const timeNow = new Date();
         const timeStr = formatDate(timeNow);
+        const dateStr = timeNow.toISOString().slice(0, 10);
 
         const rsiVal = rsi[rsi.length - 1];
         const pbVal = percentB[percentB.length - 1];
@@ -158,27 +158,38 @@ async function analyze() {
         const sellSignal = position && position.supports.length > 0 && percentBPassed[symbol] && prevMacdHistSell > 0 && macdHistSell < 0;
         const sellRegularSignal = position && position.supports.length === 0 && rsiVal > 55 && prevMacdHistSell > 0 && macdHistSell < 0;
 
-        // إشارة شراء
+        // تهيئة بيانات اليوم إذا لم تكن موجودة
+        if (!dailyProfits[dateStr]) {
+          dailyProfits[dateStr] = { totalProfit: 0, totalInvested: 0, wins: 0, losses: 0, trades: 0 };
+        }
+
+        // شراء
         if (buySignal) {
           console.log(`💚 [${timeStr}] إشارة شراء للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
           inPositions[symbol] = { symbol, buyPrice: price, buyTime: timeNow, supports: [] };
           savePositions(inPositions);
+          // زيادة رأس المال المستثمر
+          dailyProfits[dateStr].totalInvested += price;
+          dailyProfits[dateStr].trades++;
           sendTelegramMessage(`🟢 إشــارة شــراء جديدة\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price}\n📅 الوقت: ${timeStr}`);
         }
 
-        // إشارة بيع بدعم (مع ذكر جميع التدعيمات السعر والتاريخ)
+        // بيع بدعم
         else if (sellSignal) {
           console.log(`🔴 [${timeStr}] إشارة بيع تدعيم للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
           const avgBuy = (position.buyPrice + position.supports.reduce((a, s) => a + s.price, 0)) / (1 + position.supports.length);
           const changePercent = ((price - avgBuy) / avgBuy * 100);
           const profit = price - avgBuy;
-          const dateStr = timeNow.toISOString().slice(0, 10);
-          if (!dailyProfits[dateStr]) dailyProfits[dateStr] = { totalProfit: 0, wins: 0, losses: 0 };
+
           dailyProfits[dateStr].totalProfit += profit;
+          dailyProfits[dateStr].trades++;
+
+          // اعتبار رأس المال المستثمر كما متوسط الشراء مضروبًا بعدد الصفقات (تقديري)
+          dailyProfits[dateStr].totalInvested += avgBuy;
+
           if (profit > 0) dailyProfits[dateStr].wins++;
           else if (profit < 0) dailyProfits[dateStr].losses++;
 
-          // تكوين معلومات التدعيمات السابقة
           let supportsInfo = '';
           if (position.supports.length > 0) {
             position.supports.forEach((s, i) => {
@@ -202,16 +213,18 @@ async function analyze() {
           savePositions(inPositions);
         }
 
-        // إشارة بيع عادي
+        // بيع عادي
         else if (sellRegularSignal) {
           console.log(`🔴 [${timeStr}] إشارة بيع عادي للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
           const changePercent = ((price - position.buyPrice) / position.buyPrice * 100);
           const profit = price - position.buyPrice;
-          const dateStr = timeNow.toISOString().slice(0, 10);
-          if (!dailyProfits[dateStr]) dailyProfits[dateStr] = { totalProfit: 0, wins: 0, losses: 0 };
+
           dailyProfits[dateStr].totalProfit += profit;
-          if (profit > 0) dailyProfits[dateStr].wins++;
-          else if (profit < 0) dailyProfits[dateStr].losses++;
+          dailyProfits[dateStr].totalInvested += position.buyPrice;
+          dailyProfits[dateStr].wins += profit > 0 ? 1 : 0;
+          dailyProfits[dateStr].losses += profit < 0 ? 1 : 0;
+          dailyProfits[dateStr].trades++;
+
           const message = `🔴 إشــارة بيع عادي\n\n🪙 العملة: ${symbol}\n💰 سعر الشراء: ${position.buyPrice}\n📅 وقت الشراء: ${formatDate(position.buyTime)}\n\n💸 سعر البيع: ${price}\n📅 وقت البيع: ${timeStr}\n\n📊 الربح/الخسارة: ${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%`;
           sendTelegramMessage(message);
           delete inPositions[symbol];
@@ -220,34 +233,63 @@ async function analyze() {
 
         // وقف خسارة بيع
         else if (position && price <= position.buyPrice * 0.92) {
-          const dateStr = formatDate(timeNow);
+          const dateStrStopLoss = formatDate(timeNow).slice(0, 10);
           let supportsInfo = '';
           const maxSupports = 3;
           position.supports.slice(0, maxSupports).forEach((s, i) => {
             supportsInfo += `➕ سعر التدعيم ${i + 1}: ${s.price}\n📅 وقت التدعيم ${i + 1}: ${formatDate(s.time)}\n\n`;
           });
+
+          // حساب الربح/الخسارة لوقف الخسارة
+          const stopLossProfit = price - position.buyPrice;
+          dailyProfits[dateStrStopLoss].totalProfit += stopLossProfit;
+          dailyProfits[dateStrStopLoss].totalInvested += position.buyPrice;
+          if (stopLossProfit > 0) dailyProfits[dateStrStopLoss].wins++;
+          else if (stopLossProfit < 0) dailyProfits[dateStrStopLoss].losses++;
+          dailyProfits[dateStrStopLoss].trades++;
+
           const message =
             `🔴 بيـع بوقـف خسـارة\n\n🪙 العملة: ${symbol}\n` +
             `💰 سعر الشراء الأساسي: ${position.buyPrice}\n\n` +
             supportsInfo +
             `💸 سعر البيع (نسبة 8% خسارة أو أكثر): ${price}\n` +
-            `📅 وقت البيع: ${dateStr}`;
+            `📅 وقت البيع: ${formatDate(timeNow)}`;
+
           sendTelegramMessage(message);
-          console.log(`🔴 [${dateStr}] بيع بوقف خسارة للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
+          console.log(`🔴 [${formatDate(timeNow)}] بيع بوقف خسارة للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
           delete inPositions[symbol];
           savePositions(inPositions);
         }
 
-        // تدعيم شراء (شرط: هبوط 1.7% + تحقق buySignal) مع إضافة رقم التدعيم في الرسالة
+        // تدعيم شراء (شرط: هبوط 1.7% + تحقق buySignal)
         else if (position && price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) && buySignal) {
           const lastSupport = position.supports[position.supports.length - 1];
           const basePrice = lastSupport ? lastSupport.price : position.buyPrice;
           if (price <= basePrice * (1 - PRICE_DROP_SUPPORT)) {
             const supportNumber = position.supports.length + 1;
+
+            // تكوين تفاصيل التدعيمات السابقة (إن وجدت)
+            let supportsInfo = '';
+            if (position.supports.length > 0) {
+              position.supports.forEach((s, i) => {
+                supportsInfo += `➕ تدعيم رقم ${i + 1}: السعر ${s.price}، الوقت ${formatDate(new Date(s.time))}\n`;
+              });
+              supportsInfo += '\n';
+            }
+
+            const message = 
+              `🟠 تــدعيـم للشراء رقم ${supportNumber}\n\n` +
+              `🪙 العملة: ${symbol}\n` +
+              `💰 سعر الشراء الأساسي: ${position.buyPrice}\n` +
+              `📅 وقت الشراء الأساسي: ${formatDate(new Date(position.buyTime))}\n\n` +
+              (supportsInfo ? `🛠️ التدعيمات السابقة:\n${supportsInfo}` : '') +
+              `💰 سعر التدعيم الحالي: ${price}\n` +
+              `📅 وقت التدعيم الحالي: ${timeStr}`;
+
             console.log(`🟠 [${timeStr}] إشارة تدعيم شراء رقم ${supportNumber} للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
             position.supports.push({ price, time: timeNow });
             savePositions(inPositions);
-            sendTelegramMessage(`🟠 تــدعيـم للشراء رقم ${supportNumber}\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price}\n📅 الوقت: ${timeStr}`);
+            sendTelegramMessage(message);
           }
         }
 
@@ -255,6 +297,24 @@ async function analyze() {
         console.error(`⚠️ خطأ في تحليل ${symbol}:`, error.message);
       }
     }
+
+    // بعد إنهاء كل العملات، أرسل تقرير الأرباح اليومية مع النسبة المئوية لو أمكن
+    for (const [dateKey, stats] of Object.entries(dailyProfits)) {
+      if (stats.totalInvested > 0) {
+        const percentDailyProfit = (stats.totalProfit / stats.totalInvested) * 100;
+        const message =
+          `📅 تقرير الأرباح لليوم ${dateKey}\n` +
+          `💰 إجمالي الأرباح: ${stats.totalProfit.toFixed(6)}\n` +
+          `💵 رأس المال المستثمر: ${stats.totalInvested.toFixed(6)}\n` +
+          `📈 نسبة الربح اليومية: ${percentDailyProfit.toFixed(2)}%\n` +
+          `📊 إجمالي الصفقات: ${stats.trades}\n` +
+          `✅ الصفقات الرابحة: ${stats.wins}\n` +
+          `❌ الصفقات الخاسرة: ${stats.losses}`;
+
+        sendTelegramMessage(message);
+      }
+    }
+
   } catch (error) {
     console.error(`⚠️ خطأ في قراءة coins.json أو أثناء التحليل: ${error.message}`);
   } finally {
