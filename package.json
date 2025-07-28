@@ -10,7 +10,9 @@
     "node-telegram-bot-api": "^0.61.0",
     "technicalindicators": "^3.0.9",
     "moment-timezone": "^0.5.43",
-    "node-schedule": "^2.1.1"
+    "node-schedule": "^2.1.1",
+      "node-fetch": "^2.6.7"
+
   },
   "engines": {
     "node": ">=14"
