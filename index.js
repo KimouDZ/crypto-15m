@@ -36,8 +36,9 @@ async function sendTelegram(message) {
 }
 
 // وظيفة وهمية لجلب الشموع (تحتاج لاستبدالها ببيانات حقيقية من مصدر موثوق)
+// حالياً ترجع مصفوفة فارغة، استبدل هذه الدالة لتعطي بيانات فعليّة
 async function getKlines(symbol) {
-  // هذه دالة وهمية تعيد مصفوفة فارغة، استبدلها ببيانات حقيقية أو API بيانات السوق (مثلاً Binance بدون استخدام API الخاص بالتداول)
+  // مثال: هنا يمكنك إدخال طريقة لجلب البيانات من مصدر موثوق بدون Binance API التداولي
   return [];
 }
 
@@ -128,50 +129,60 @@ let dailyStats = {
   netProfit: 0,
 };
 
-// منطق الفحص وإرسال التنبيهات مع حساب الأرباح بشكل وهمي بناءً على سعر الإشارات فقط
+// المنطق الرئيسي مع تتبع الأخطاء أثناء التحليل
 async function checkTrading() {
   const now = moment().tz('Africa/Algiers').toDate();
 
-  for (const symbol of SYMBOLS) {
-    // في هذه النسخة لا نستخدم getKlines الحقيقية. ضع هنا بيانات فعلية من مصدر بيانات موثوق.
-    // لنرسل تنبيهات وهمية فقط كشرح، يمكن تعديلها حسب بيانات فعلية مستقبلاً
+  try {
+    for (const symbol of SYMBOLS) {
+      try {
+        const candles = await getKlines(symbol);
+        if (candles.length === 0) continue;
 
-    // مثال بيانات وهمية (ينصح باستبدالها ببيانات حقيقية)
-    const candles = await getKlines(symbol);
-    if (candles.length === 0) continue;
+        const indicators = calculateIndicators(candles);
+        const lenInd = indicators.rsi.length;
+        if (lenInd === 0) continue;
 
-    const indicators = calculateIndicators(candles);
-    const lenInd = indicators.rsi.length;
-    if (lenInd === 0) continue;
+        const rsi = indicators.rsi[lenInd - 1];
+        const bPercent = indicators.bPercents[lenInd - 1];
+        const macdBuyCross = getMacdCross(indicators.macdBuy);
+        const macdSellCross = getMacdCross(indicators.macdSell);
+        const closePrice = candles[candles.length - 1].close;
 
-    const rsi = indicators.rsi[lenInd - 1];
-    const bPercent = indicators.bPercents[lenInd - 1];
-    const macdBuyCross = getMacdCross(indicators.macdBuy);
-    const macdSellCross = getMacdCross(indicators.macdSell);
-    const closePrice = candles[candles.length - 1].close;
+        // إرسال التنبيهات حسب الشروط:
 
-    // إشارة شراء
-    if (rsi < 40 && bPercent < 0.4 && macdBuyCross === 'positive') {
-      await alertBuy(symbol, closePrice, TRADE_AMOUNT, now);
+        if (rsi < 40 && bPercent < 0.4 && macdBuyCross === 'positive') {
+          await alertBuy(symbol, closePrice, TRADE_AMOUNT, now);
+        }
+
+        if (rsi > 55 && macdSellCross === 'negative') {
+          const buyPrice = closePrice * 0.95; // نفترض أن الشراء كان بسعر أقل 5%
+          await alertSell(symbol, closePrice, buyPrice, now, now);
+        }
+
+        if (closePrice <= closePrice * (1 - STOP_LOSS_DROP_PERCENT)) {
+          await alertStopLoss(symbol, closePrice, now);
+        }
+
+      } catch (analysisError) {
+        console.error(`Error analyzing symbol ${symbol}:`, analysisError);
+        await sendTelegram(
+          `⚠️ <b>خطأ أثناء تحليل الرمز ${symbol}</b>\n` +
+          `الخطأ: ${analysisError.message || analysisError}`
+        );
+      }
     }
-
-    // إشارة بيع (نفترض أن سعر الشراء هو 5% أقل من السعر الحالي)
-    if (rsi > 55 && macdSellCross === 'negative') {
-      const buyPrice = closePrice * 0.95;
-      await alertSell(symbol, closePrice, buyPrice, now, now);
-    }
-
-    // إشارة وقف خسارة
-    if (closePrice <= closePrice * (1 - STOP_LOSS_DROP_PERCENT)) {
-      await alertStopLoss(symbol, closePrice, now);
-    }
+  } catch (e) {
+    console.error('Error in checkTrading main loop:', e);
+    await sendTelegram(`⚠️ <b>خطأ في الدالة الرئيسية للتحليل</b>\n${e.message || e}`);
   }
 }
 
 // إرسال تقرير الأرباح اليومية في منتصف الليل (توقيت الجزائر)
-schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, () => {
-  const profitPercent = dailyStats.totalInvested > 0 ? (dailyStats.netProfit / dailyStats.totalInvested) * 100 : 0;
-  const report = 
+schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, async () => {
+  try {
+    const profitPercent = dailyStats.totalInvested > 0 ? (dailyStats.netProfit / dailyStats.totalInvested) * 100 : 0;
+    const report = 
 `📊 <b>تقرير الأرباح اليومية - ${dailyStats.date}</b>
 📈 عدد الصفقات: ${dailyStats.totalTrades}
 ✅ الصفقات الرابحة: ${dailyStats.winningTrades}
@@ -179,24 +190,28 @@ schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, () => {
 💰 المبلغ المستثمر: ${dailyStats.totalInvested.toFixed(2)} USD
 📉 صافي الربح: ${dailyStats.netProfit.toFixed(2)} USD
 📊 نسبة الأرباح: ${profitPercent.toFixed(2)}%`;
-  sendTelegram(report);
+    await sendTelegram(report);
 
-  // إعادة تعيين الإحصائيات لليوم التالي
-  dailyStats = {
-    date: moment().tz('Africa/Algiers').format('YYYY-MM-DD'),
-    totalTrades: 0,
-    winningTrades: 0,
-    losingTrades: 0,
-    totalInvested: 0,
-    netProfit: 0,
-  };
+    // إعادة تعيين الإحصائيات لليوم التالي
+    dailyStats = {
+      date: moment().tz('Africa/Algiers').format('YYYY-MM-DD'),
+      totalTrades: 0,
+      winningTrades: 0,
+      losingTrades: 0,
+      totalInvested: 0,
+      netProfit: 0,
+    };
+  } catch (e) {
+    console.error('Error sending daily report:', e);
+    await sendTelegram(`⚠️ <b>خطأ في إرسال تقرير الأرباح اليومية</b>\n${e.message || e}`);
+  }
 });
 
-console.log('Trading alert bot without Binance API started.');
+console.log('Trading alert bot started without Binance API, with error logging.');
 
 // بدء التشغيل وجدولة الفحص كل 15 دقيقة
 checkTrading();
-schedule.scheduleJob('*/2 * * * *', () => {
+schedule.scheduleJob('*/15 * * * *', () => {
   console.log('Checking alerts at', algTime(new Date()));
   checkTrading();
 });
