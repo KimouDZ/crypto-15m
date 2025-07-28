@@ -1,24 +1,27 @@
 {
-  "name": "crypto-trading-bot",
+  "name": "trading-alert-bot",
   "version": "1.0.0",
-  "type": "module",
-  "description": "بوت تداول العملات الرقمية باستخدام مؤشرات فنية وإرسال تنبيهات تلغرام",
+  "description": "Trading alert bot that sends notifications via Telegram based on technical indicators without executing trades",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "axios": "^1.4.0",
-    "ccxt": "^2.7.69",
-    "node-cron": "^3.0.0",
-    "date-fns": "^2.30.0",
-    "luxon": "^3.3.0",
-    "technicalindicators": "^3.0.11",
-    "uuid": "^9.0.0"
+    "node-telegram-bot-api": "^0.61.0",
+    "technicalindicators": "^3.0.9",
+    "moment-timezone": "^0.5.43",
+    "node-schedule": "^2.1.1"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=14"
   },
-  "author": "",
-  "license": "ISC"
+  "keywords": [
+    "trading",
+    "telegram",
+    "bot",
+    "alerts",
+    "technical-indicators"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
 }
