@@ -1,391 +1,202 @@
-import fs from 'fs';
-import axios from 'axios';
-import cron from 'node-cron';
-import ccxt from 'ccxt';
-import technicalindicators from 'technicalindicators';
-import { v4 as uuidv4 } from 'uuid';
+const TelegramBot = require('node-telegram-bot-api');
+const technicalIndicators = require('technicalindicators');
+const fs = require('fs');
+const schedule = require('node-schedule');
+const moment = require('moment-timezone');
 
-const TELEGRAM_TOKEN = '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
-const USERS_FILE = 'users.json';
+// قراءة العملات من ملف JSON
+const SYMBOLS = JSON.parse(fs.readFileSync('./symbols.json')).symbols;
 
-const exchange = new ccxt.binance();
-const PRICE_DROP_SUPPORT = 0.017;
-const UNIT_PRICE = 100; // السعر الثابت لكل وحدة شراء أو تدعيم
-const RUN_ID = uuidv4();
-console.log(`🚀 بدء تشغيل البرنامج بمعرف ${RUN_ID}`);
+// إعدادات التليغرام
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '8196868477:AAGPMnAc1fFqJvQcJGk8HsC5AYAnRkvu3cM';
+const TELEGRAM_CHAT_IDS = process.env.TELEGRAM_CHAT_IDS
+  ? process.env.TELEGRAM_CHAT_IDS.split(',').map(id => id.trim())
+  : ['1055739217', '5178781562'];
 
-// تحميل وتخزين المستخدمين المسجلين (chat IDs)
-let registeredUsers = [];
+// إعدادات التداول الافتراضية لحساب الأرباح
+const TRADE_AMOUNT = 100; // 100 دولار لكل صفقة شراء/بيع
+const STOP_LOSS_DROP_PERCENT = 8 / 100; // 8%
 
-function loadUsers() {
-  try {
-    const data = fs.readFileSync(USERS_FILE, 'utf-8');
-    registeredUsers = JSON.parse(data);
-    console.log(`✔️ تم تحميل ${registeredUsers.length} مستخدمين مسجلين`);
-  } catch {
-    registeredUsers = [];
-    console.log('🚫 لا يوجد ملف للمستخدمين، سيتم إنشاؤه عند التسجيل الأول');
-  }
+// إنشاء بوت التليغرام
+const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
+
+function algTime(date) {
+  return moment(date).tz('Africa/Algiers').format('YYYY-MM-DD HH:mm:ss');
 }
 
-function saveUsers() {
-  try {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(registeredUsers, null, 2), 'utf-8');
-    console.log('💾 تم تحديث قائمة المستخدمين');
-  } catch (error) {
-    console.error('❌ خطأ في حفظ المستخدمين:', error.message);
-  }
-}
-
-// إرسال رسائل لجميع المستخدمين المسجلين بدون قيود زمنية
-function sendTelegramMessage(message) {
-  for (const chatId of registeredUsers) {
-    const nowIso = new Date().toISOString();
-    console.log(`[${nowIso}] ⚡️ إرسال رسالة إلى ${chatId}`);
-    axios
-      .post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-        chat_id: chatId,
-        text: message,
-        parse_mode: 'Markdown',
-      })
-      .then(() => {
-        console.log(`[${nowIso}] ✅ تم إرسال الرسالة بنجاح إلى ${chatId}`);
-      })
-      .catch((error) => {
-        console.error(`[${nowIso}] ❌ فشل إرسال الرسالة إلى ${chatId}:`, error.message);
-      });
-  }
-}
-
-function formatDate(date) {
-  const offsetDate = new Date(date.getTime() + 60 * 60 * 1000); // +1 ساعة لتوقيت الجزائر
-  return offsetDate.toISOString().replace('T', ' ').slice(0, 19);
-}
-
-function calculateMACD(values, fastPeriod, slowPeriod, signalPeriod) {
-  return technicalindicators.MACD.calculate({
-    values,
-    fastPeriod,
-    slowPeriod,
-    signalPeriod,
-    SimpleMAOscillator: false,
-    SimpleMASignal: false,
-  });
-}
-
-function calculateRSI(values, period) {
-  return technicalindicators.RSI.calculate({ values, period });
-}
-
-function calculatePercentB(closes, period = 20, stdDev = 2) {
-  const bb = technicalindicators.BollingerBands.calculate({
-    period,
-    stdDev,
-    values: closes,
-  });
-  return closes.slice(period - 1).map((close, i) => {
-    const band = bb[i];
-    return band ? (close - band.lower) / (band.upper - band.lower) : 0;
-  });
-}
-
-function loadPositions() {
-  try {
-    const data = fs.readFileSync('positions.json', 'utf-8');
-    return JSON.parse(data);
-  } catch {
-    return {};
-  }
-}
-
-function savePositions(data) {
-  try {
-    fs.writeFileSync('positions.json', JSON.stringify(data, null, 2), 'utf-8');
-  } catch (error) {
-    console.error(`⚠️ [${RUN_ID}] خطأ في حفظ المراكز:`, error.message);
-  }
-}
-
-let inPositions = loadPositions();
-let percentBPassed = {};
-let dailyProfits = {}; // لتخزين الربح، رأس المال، عدد الصفقات لكل يوم
-
-let isAnalyzing = false;
-
-async function analyze() {
-  if (isAnalyzing) {
-    console.log('📌 تحليل جاري، يتم تجاهل استدعاء analyze جديد');
-    return;
-  }
-  isAnalyzing = true;
-
-  try {
-    const coins = JSON.parse(fs.readFileSync('coins.json'));
-    console.log(`🚀 بدء تحليل العملات: ${coins.join(', ')}`);
-
-    for (const symbol of coins) {
-      console.log(`🔍 جاري تحليل العملة: ${symbol}`);
-
-      try {
-        const ohlcv = await exchange.fetchOHLCV(symbol, '15m');
-        const closes = ohlcv.map((c) => c[4]);
-        if (closes.length < 20) continue;
-
-        const rsi = calculateRSI(closes, 14);
-        const percentB = calculatePercentB(closes);
-        const macdBuy = calculateMACD(closes, 1, 2, 2);
-        const macdSell = calculateMACD(closes, 1, 10, 2);
-
-        const lastIndex = closes.length - 1;
-        const price = closes[lastIndex];
-        const timeNow = new Date();
-        const timeStr = formatDate(timeNow);
-        const dateStr = timeNow.toISOString().slice(0, 10);
-
-        const rsiVal = rsi[rsi.length - 1];
-        const pbVal = percentB[percentB.length - 1];
-        const macdHistBuy = macdBuy[macdBuy.length - 1]?.MACD - macdBuy[macdBuy.length - 1]?.signal;
-        const prevMacdHistBuy = macdBuy[macdBuy.length - 2]?.MACD - macdBuy[macdBuy.length - 2]?.signal;
-        const macdHistSell = macdSell[macdSell.length - 1]?.MACD - macdSell[macdSell.length - 1]?.signal;
-        const prevMacdHistSell = macdSell[macdSell.length - 2]?.MACD - macdSell[macdSell.length - 2]?.signal;
-
-        const position = inPositions[symbol];
-
-        if (percentBPassed[symbol] === undefined) percentBPassed[symbol] = false;
-        percentBPassed[symbol] = pbVal > 0.2;
-
-        const buySignal = !position && rsiVal < 40 && pbVal < 0.4 && prevMacdHistBuy < 0 && macdHistBuy > 0;
-        const sellSignal = position && position.supports.length > 0 && percentBPassed[symbol] && prevMacdHistSell > 0 && macdHistSell < 0;
-        const sellRegularSignal = position && position.supports.length === 0 && rsiVal > 55 && prevMacdHistSell > 0 && macdHistSell < 0;
-
-        // تهيئة بيانات اليوم إذا لم تكن موجودة
-        if (!dailyProfits[dateStr]) {
-          dailyProfits[dateStr] = { totalProfit: 0, totalInvested: 0, wins: 0, losses: 0, trades: 0 };
-        }
-
-        // إشارة شراء
-        if (buySignal) {
-          console.log(`💚 [${timeStr}] إشارة شراء للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
-          inPositions[symbol] = { symbol, buyPrice: price, buyTime: timeNow, supports: [] };
-          savePositions(inPositions);
-          dailyProfits[dateStr].totalInvested += UNIT_PRICE;
-          dailyProfits[dateStr].trades++;
-          sendTelegramMessage(`🟢 إشــارة شــراء جديدة\n\n🪙 العملة: ${symbol}\n💰 السعر: ${price}\n📅 الوقت: ${timeStr}`);
-        }
-
-        // إشارة بيع بدعم
-        else if (sellSignal) {
-          console.log(`🔴 [${timeStr}] إشارة بيع تدعيم للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
-          const units = 1 + position.supports.length; // عدد الوحدات (سعر شراء + تدعيمات)
-          const investedCapital = units * UNIT_PRICE;
-          const profit = price * units - investedCapital;
-          const changePercent = (profit / investedCapital) * 100;
-
-          dailyProfits[dateStr].totalProfit += profit;
-          dailyProfits[dateStr].totalInvested += investedCapital;
-          dailyProfits[dateStr].trades++;
-
-          if (profit > 0) dailyProfits[dateStr].wins++;
-          else if (profit < 0) dailyProfits[dateStr].losses++;
-
-          let supportsInfo = '';
-          if (position.supports.length > 0) {
-            position.supports.forEach((s, i) => {
-              supportsInfo += `➕ تدعيم رقم ${i + 1}: السعر ${s.price}، الوقت ${formatDate(new Date(s.time))}\n`;
-            });
-            supportsInfo += '\n';
-          }
-
-          let message =
-            `🔴 إشــارة بيـع\n\n` +
-            `🪙 العملة: ${symbol}\n` +
-            `💰 سعر الشراء الأساسي: ${position.buyPrice}\n` +
-            `📅 وقت الشراء: ${formatDate(position.buyTime)}\n\n` +
-            (supportsInfo ? `🛠️ التدعيمات السابقة:\n${supportsInfo}` : '') +
-            `💸 سعر البيع: ${price}\n` +
-            `📅 وقت البيع: ${timeStr}\n\n` +
-            `📊 الربح/الخسارة: ${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%`;
-
-          sendTelegramMessage(message);
-          delete inPositions[symbol];
-          savePositions(inPositions);
-        }
-
-        // إشارة بيع عادي
-        else if (sellRegularSignal) {
-          console.log(`🔴 [${timeStr}] إشارة بيع عادي للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
-          const units = 1; // بدون تدعيمات
-          const investedCapital = units * UNIT_PRICE;
-          const profit = price * units - investedCapital;
-          const changePercent = (profit / investedCapital) * 100;
-
-          dailyProfits[dateStr].totalProfit += profit;
-          dailyProfits[dateStr].totalInvested += investedCapital;
-          dailyProfits[dateStr].wins += profit > 0 ? 1 : 0;
-          dailyProfits[dateStr].losses += profit < 0 ? 1 : 0;
-          dailyProfits[dateStr].trades++;
-
-          const message = 
-            `🔴 إشــارة بيع عادي\n\n🪙 العملة: ${symbol}\n💰 سعر الشراء: ${position.buyPrice}\n📅 وقت الشراء: ${formatDate(position.buyTime)}\n\n` +
-            `💸 سعر البيع: ${price}\n📅 وقت البيع: ${timeStr}\n\n` +
-            `📊 الربح/الخسارة: ${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%`;
-          sendTelegramMessage(message);
-          delete inPositions[symbol];
-          savePositions(inPositions);
-        }
-
-        // وقف خسارة بيع
-        else if (position && price <= position.buyPrice * 0.92) {
-          const dateStrStopLoss = formatDate(timeNow).slice(0, 10);
-          let supportsInfo = '';
-          const maxSupports = 3;
-          position.supports.slice(0, maxSupports).forEach((s, i) => {
-            supportsInfo += `➕ سعر التدعيم ${i + 1}: ${s.price}\n📅 وقت التدعيم ${i + 1}: ${formatDate(s.time)}\n\n`;
-          });
-
-          const units = 1 + position.supports.length;
-          const investedCapital = units * UNIT_PRICE;
-          const profit = price * units - investedCapital;
-          
-          dailyProfits[dateStrStopLoss].totalProfit += profit;
-          dailyProfits[dateStrStopLoss].totalInvested += investedCapital;
-          if (profit > 0) dailyProfits[dateStrStopLoss].wins++;
-          else if (profit < 0) dailyProfits[dateStrStopLoss].losses++;
-          dailyProfits[dateStrStopLoss].trades++;
-
-          const message =
-            `🔴 بيـع بوقـف خسـارة\n\n🪙 العملة: ${symbol}\n` +
-            `💰 سعر الشراء الأساسي: ${position.buyPrice}\n\n` +
-            supportsInfo +
-            `💸 سعر البيع (نسبة 8% خسارة أو أكثر): ${price}\n` +
-            `📅 وقت البيع: ${formatDate(timeNow)}`;
-
-          sendTelegramMessage(message);
-          console.log(`🔴 [${formatDate(timeNow)}] بيع بوقف خسارة للرمز ${symbol} عند السعر ${price} [RUN_ID: ${RUN_ID}]`);
-          delete inPositions[symbol];
-          savePositions(inPositions);
-        }
-
-        // تعديل شرط تدعيم الشراء ليكون فقط نزول السعر 1.7% عن سعر الشراء الأساسي بدون شرط إضافي على الدعم السابق
-        else if (position && price <= position.buyPrice * (1 - PRICE_DROP_SUPPORT) && buySignal) {
-          console.log(`🟠 محاولة تدعيم: السعر الحالي ${price}, سعر الشراء ${position.buyPrice}, عدد التدعيمات السابقة ${position.supports.length}`);
-
-          const supportNumber = position.supports.length + 1;
-
-          let supportsInfo = '';
-          if (position.supports.length > 0) {
-            position.supports.forEach((s, i) => {
-              supportsInfo += `➕ تدعيم رقم ${i + 1}: السعر ${s.price}، الوقت ${formatDate(new Date(s.time))}\n`;
-            });
-            supportsInfo += '\n';
-          }
-
-          const timeNow = new Date();
-          const timeStr = formatDate(timeNow);
-
-          const message = 
-            `🟠 تــدعيـم للشراء رقم ${supportNumber}\n\n` +
-            `🪙 العملة: ${position.symbol}\n` +
-            `💰 سعر الشراء الأساسي: ${position.buyPrice}\n` +
-            `📅 وقت الشراء الأساسي: ${formatDate(new Date(position.buyTime))}\n\n` +
-            (supportsInfo ? `🛠️ التدعيمات السابقة:\n${supportsInfo}` : '') +
-            `💰 سعر التدعيم الحالي: ${price}\n` +
-            `📅 وقت التدعيم الحالي: ${timeStr}`;
-
-          position.supports.push({ price, time: timeNow });
-          savePositions(inPositions);
-          sendTelegramMessage(message);
-        }
-
-      } catch (error) {
-        console.error(`⚠️ خطأ في تحليل ${symbol}:`, error.message);
-      }
-    }
-
-  } catch (error) {
-    console.error(`⚠️ خطأ في قراءة coins.json أو أثناء التحليل: ${error.message}`);
-  } finally {
-    isAnalyzing = false;
-  }
-}
-
-// جدولة تحليل كل دقيقة كما في الأصل
-cron.schedule('*/1 * * * *', async () => {
-  try {
-    console.log(`⏳ جاري التحليل... [RUN_ID: ${RUN_ID}]`);
-    await analyze();
-  } catch (error) {
-    console.error('⚠️ خطأ أثناء التحليل:', error);
-  }
-});
-
-// جدولة إرسال تقرير الأرباح اليومية يوميًا عند الساعة 00:54 بتوقيت الجزائر
-// (باستخدام توقيت النظام مع إضافة الساعة +1)
-cron.schedule('54 0 * * *', () => {
-  const yesterday = new Date(Date.now() - 86400000);
-  const dateKey = yesterday.toISOString().slice(0, 10);
-
-  if (dailyProfits[dateKey]) {
-    const stats = dailyProfits[dateKey];
-    if (stats.totalInvested > 0) {
-      const percentDailyProfit = (stats.totalProfit / stats.totalInvested) * 100;
-      const message =
-        `📅 تقرير الأرباح ليوم ${dateKey}\n` +
-        `💰 إجمالي الأرباح: ${stats.totalProfit.toFixed(6)}\n` +
-        `💵 رأس المال المستثمر: ${stats.totalInvested.toFixed(6)}\n` +
-        `📈 نسبة الربح اليومية: ${percentDailyProfit.toFixed(2)}%\n` +
-        `📊 إجمالي الصفقات: ${stats.trades}\n` +
-        `✅ الصفقات الرابحة: ${stats.wins}\n` +
-        `❌ الصفقات الخاسرة: ${stats.losses}`;
-      sendTelegramMessage(message);
-    }
-  } else {
-    console.log('⌛️ لا توجد بيانات أرباح ليوم الأمس لإرسال التقرير');
-  }
-});
-
-// كود polling لتسجيل المستخدمين تلقائيًا من تحديثات Telegram مع تسجيل الوقت (كما هو في الأصل)
-
-let offset = 0;
-
-async function polling() {
-  while (true) {
+// إرسال رسالة إلى كل Chat ID في القائمة
+async function sendTelegram(message) {
+  for (const chatId of TELEGRAM_CHAT_IDS) {
     try {
-      const response = await axios.get(
-        `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates`,
-        { params: { offset: offset + 1, timeout: 30 } }
-      );
-      const updates = response.data.result;
-
-      for (const update of updates) {
-        offset = update.update_id;
-
-        if (update.message) {
-          const chatId = update.message.chat.id;
-          const text = update.message.text || '';
-
-          if (!registeredUsers.includes(chatId)) {
-            registeredUsers.push(chatId);
-            saveUsers();
-            console.log(`[${new Date().toISOString()}] ➕ تم تسجيل مستخدم جديد بالمعرف: ${chatId}`);
-          }
-
-          if (text.toLowerCase() === '/start') {
-            await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-              chat_id: chatId,
-              text: 'مرحبًا! تم تسجيلك بنجاح في البوت.',
-              parse_mode: 'Markdown',
-            });
-          }
-        }
-      }
-    } catch (error) {
-      console.error('❌ خطأ في جلب التحديثات:', error.message);
-      await new Promise((r) => setTimeout(r, 1000));
+      await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+    } catch (e) {
+      console.error(`Telegram send error to chat ${chatId}:`, e.message);
     }
   }
 }
 
-// بدء التحميل والتشغيل
-loadUsers();
-polling().catch(console.error);
+// وظيفة وهمية لجلب الشموع (تحتاج لاستبدالها ببيانات حقيقية من مصدر موثوق)
+async function getKlines(symbol) {
+  // هذه دالة وهمية تعيد مصفوفة فارغة، استبدلها ببيانات حقيقية أو API بيانات السوق (مثلاً Binance بدون استخدام API الخاص بالتداول)
+  return [];
+}
+
+// حساب المؤشرات الفنية
+function calculateIndicators(candles) {
+  const closes = candles.map(c => c.close);
+
+  const rsi = technicalIndicators.RSI.calculate({ values: closes, period: 14 });
+  const bb = technicalIndicators.BollingerBands.calculate({ period: 20, values: closes, stdDev: 2 });
+  const bPercents = bb.map((band, i) => {
+    if (band.upper === band.lower) return 0;
+    return (closes[i + (closes.length - bb.length)] - band.lower) / (band.upper - band.lower);
+  });
+
+  const macdBuy = technicalIndicators.MACD.calculate({
+    values: closes, fastPeriod: 1, slowPeriod: 2, signalPeriod: 2,
+    SimpleMAOscillator: false, SimpleMASignal: false
+  });
+
+  const macdSell = technicalIndicators.MACD.calculate({
+    values: closes, fastPeriod: 1, slowPeriod: 10, signalPeriod: 2,
+    SimpleMAOscillator: false, SimpleMASignal: false
+  });
+
+  return { rsi, bPercents, macdBuy, macdSell };
+}
+
+function getMacdCross(macd) {
+  if (macd.length < 2) return null;
+  const prev = macd[macd.length - 2];
+  const curr = macd[macd.length - 1];
+  const prevDiff = prev.MACD - prev.signal;
+  const currDiff = curr.MACD - curr.signal;
+
+  if (prevDiff < 0 && currDiff > 0) return 'positive';
+  if (prevDiff > 0 && currDiff < 0) return 'negative';
+  return null;
+}
+
+// تنبيهات جاهزة
+async function alertBuy(symbol, price, amount, dt) {
+  const msg = 
+`🟢 <b>إشــارة شــراء</b>
+💰 العملة: ${symbol}
+💵 السعر: ${price.toFixed(6)}
+💸 القيمة: ${amount} USD
+🕒 التاريخ والوقت: ${algTime(dt)}`;
+  await sendTelegram(msg);
+}
+
+async function alertSell(symbol, sellPrice, buyPrice, buyTime, sellTime) {
+  const profitPercent = ((sellPrice - buyPrice) / buyPrice) * 100;
+  const netProfit = TRADE_AMOUNT * (profitPercent / 100);
+  const msg = 
+`🔴 <b>إشــارة بيع</b>
+💰 العملة: ${symbol}
+📈 سعر الشراء: ${buyPrice.toFixed(6)}
+🕒 وقت الشراء: ${algTime(buyTime)}
+💵 سعر البيع: ${sellPrice.toFixed(6)}
+🕒 وقت البيع: ${algTime(sellTime)}
+📉 نسبة الأرباح: ${profitPercent.toFixed(2)}%
+💰 صافي الربح: ${netProfit.toFixed(2)} USD`;
+  await sendTelegram(msg);
+  // تحديث الإحصائيات اليومية
+  dailyStats.totalTrades++;
+  if (netProfit > 0) dailyStats.winningTrades++;
+  else dailyStats.losingTrades++;
+  dailyStats.netProfit += netProfit;
+  dailyStats.totalInvested += TRADE_AMOUNT;
+}
+
+async function alertStopLoss(symbol, price, dt) {
+  const msg = 
+`⛔️ <b>إشــارة وقف خسارة</b>
+💰 العملة: ${symbol}
+💵 السعر: ${price.toFixed(6)}
+🕒 التاريخ والوقت: ${algTime(dt)}`;
+  await sendTelegram(msg);
+}
+
+// إحصاءات يومية لتقرير الأرباح
+let dailyStats = {
+  date: moment().tz('Africa/Algiers').format('YYYY-MM-DD'),
+  totalTrades: 0,
+  winningTrades: 0,
+  losingTrades: 0,
+  totalInvested: 0,
+  netProfit: 0,
+};
+
+// منطق الفحص وإرسال التنبيهات مع حساب الأرباح بشكل وهمي بناءً على سعر الإشارات فقط
+async function checkTrading() {
+  const now = moment().tz('Africa/Algiers').toDate();
+
+  for (const symbol of SYMBOLS) {
+    // في هذه النسخة لا نستخدم getKlines الحقيقية. ضع هنا بيانات فعلية من مصدر بيانات موثوق.
+    // لنرسل تنبيهات وهمية فقط كشرح، يمكن تعديلها حسب بيانات فعلية مستقبلاً
+
+    // مثال بيانات وهمية (ينصح باستبدالها ببيانات حقيقية)
+    const candles = await getKlines(symbol);
+    if (candles.length === 0) continue;
+
+    const indicators = calculateIndicators(candles);
+    const lenInd = indicators.rsi.length;
+    if (lenInd === 0) continue;
+
+    const rsi = indicators.rsi[lenInd - 1];
+    const bPercent = indicators.bPercents[lenInd - 1];
+    const macdBuyCross = getMacdCross(indicators.macdBuy);
+    const macdSellCross = getMacdCross(indicators.macdSell);
+    const closePrice = candles[candles.length - 1].close;
+
+    // إشارة شراء
+    if (rsi < 40 && bPercent < 0.4 && macdBuyCross === 'positive') {
+      await alertBuy(symbol, closePrice, TRADE_AMOUNT, now);
+    }
+
+    // إشارة بيع (نفترض أن سعر الشراء هو 5% أقل من السعر الحالي)
+    if (rsi > 55 && macdSellCross === 'negative') {
+      const buyPrice = closePrice * 0.95;
+      await alertSell(symbol, closePrice, buyPrice, now, now);
+    }
+
+    // إشارة وقف خسارة
+    if (closePrice <= closePrice * (1 - STOP_LOSS_DROP_PERCENT)) {
+      await alertStopLoss(symbol, closePrice, now);
+    }
+  }
+}
+
+// إرسال تقرير الأرباح اليومية في منتصف الليل (توقيت الجزائر)
+schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, () => {
+  const profitPercent = dailyStats.totalInvested > 0 ? (dailyStats.netProfit / dailyStats.totalInvested) * 100 : 0;
+  const report = 
+`📊 <b>تقرير الأرباح اليومية - ${dailyStats.date}</b>
+📈 عدد الصفقات: ${dailyStats.totalTrades}
+✅ الصفقات الرابحة: ${dailyStats.winningTrades}
+❌ الصفقات الخاسرة: ${dailyStats.losingTrades}
+💰 المبلغ المستثمر: ${dailyStats.totalInvested.toFixed(2)} USD
+📉 صافي الربح: ${dailyStats.netProfit.toFixed(2)} USD
+📊 نسبة الأرباح: ${profitPercent.toFixed(2)}%`;
+  sendTelegram(report);
+
+  // إعادة تعيين الإحصائيات لليوم التالي
+  dailyStats = {
+    date: moment().tz('Africa/Algiers').format('YYYY-MM-DD'),
+    totalTrades: 0,
+    winningTrades: 0,
+    losingTrades: 0,
+    totalInvested: 0,
+    netProfit: 0,
+  };
+});
+
+console.log('Trading alert bot without Binance API started.');
+
+// بدء التشغيل وجدولة الفحص كل 15 دقيقة
+checkTrading();
+schedule.scheduleJob('*/2 * * * *', () => {
+  console.log('Checking alerts at', algTime(new Date()));
+  checkTrading();
+});
