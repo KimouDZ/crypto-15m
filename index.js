@@ -211,7 +211,7 @@ console.log('Trading alert bot started without Binance API, with error logging.'
 
 // بدء التشغيل وجدولة الفحص كل 15 دقيقة
 checkTrading();
-schedule.scheduleJob('*/15 * * * *', () => {
+schedule.scheduleJob('*/2 * * * *', () => {
   console.log('Checking alerts at', algTime(new Date()));
   checkTrading();
 });
