@@ -150,6 +150,9 @@ let dailyStats = {
   netProfit: 0,
 };
 
+// تتبع حالة كل عملة: 'open' تعني صفقة شراء مفتوحة، 'closed' تعني لا صفقة مفتوحة
+let trades = {};
+
 // المنطق الرئيسي مع تتبع الأخطاء أثناء التحليل
 async function checkTrading() {
   const now = moment().tz('Africa/Algiers').toDate();
@@ -170,19 +173,23 @@ async function checkTrading() {
         const macdSellCross = getMacdCross(indicators.macdSell);
         const closePrice = candles[candles.length - 1].close;
 
-        // إرسال التنبيهات حسب الشروط:
-
-        if (rsi < 40 && bPercent < 0.4 && macdBuyCross === 'positive') {
+        // شرط إشارة شراء: فقط إذا لم تكن العملة في صفقة مفتوحة حالياً
+        if ((trades[symbol] !== 'open') && rsi < 40 && bPercent < 0.4 && macdBuyCross === 'positive') {
           await alertBuy(symbol, closePrice, TRADE_AMOUNT, now);
+          trades[symbol] = 'open';
         }
 
-        if (rsi > 55 && macdSellCross === 'negative') {
+        // شرط إشارة بيع: فقط إذا كانت العملة في صفقة مفتوحة
+        if ((trades[symbol] === 'open') && rsi > 55 && macdSellCross === 'negative') {
           const buyPrice = closePrice * 0.95; // نفترض أن الشراء كان بسعر أقل 5%
           await alertSell(symbol, closePrice, buyPrice, now, now);
+          trades[symbol] = 'closed';
         }
 
-        if (closePrice <= closePrice * (1 - STOP_LOSS_DROP_PERCENT)) {
+        // إشارة وقف خسارة (تغلق الصفقة)
+        if ((trades[symbol] === 'open') && closePrice <= closePrice * (1 - STOP_LOSS_DROP_PERCENT)) {
           await alertStopLoss(symbol, closePrice, now);
+          trades[symbol] = 'closed';
         }
 
       } catch (analysisError) {
@@ -228,11 +235,11 @@ schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, async () => {
   }
 });
 
-console.log('Trading alert bot started without Binance API, with real data and error logging.');
+console.log('Trading alert bot started without Binance API, with stateful trades and error logging.');
 
 // بدء التشغيل وجدولة الفحص كل 15 دقيقة
 checkTrading();
-schedule.scheduleJob('*/2 * * * *', () => {
+schedule.scheduleJob('*/15 * * * *', () => {
   console.log('Checking alerts at', algTime(new Date()));
   checkTrading();
 });
