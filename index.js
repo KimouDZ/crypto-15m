@@ -3,6 +3,7 @@ const technicalIndicators = require('technicalindicators');
 const fs = require('fs');
 const schedule = require('node-schedule');
 const moment = require('moment-timezone');
+const fetch = require('node-fetch'); // تحتاج تثبيته: npm install node-fetch@2
 
 // قراءة العملات من ملف JSON
 const SYMBOLS = JSON.parse(fs.readFileSync('./symbols.json')).symbols;
@@ -35,11 +36,29 @@ async function sendTelegram(message) {
   }
 }
 
-// وظيفة وهمية لجلب الشموع (تحتاج لاستبدالها ببيانات حقيقية من مصدر موثوق)
-// حالياً ترجع مصفوفة فارغة، استبدل هذه الدالة لتعطي بيانات فعليّة
+// جلب الشموع من API العمومي لبينانس (15 دقيقة، 100 شمعة)
 async function getKlines(symbol) {
-  // مثال: هنا يمكنك إدخال طريقة لجلب البيانات من مصدر موثوق بدون Binance API التداولي
-  return [];
+  try {
+    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=100`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const data = await response.json();
+    return data.map(c => ({
+      openTime: c[0],
+      open: parseFloat(c[1]),
+      high: parseFloat(c[2]),
+      low: parseFloat(c[3]),
+      close: parseFloat(c[4]),
+      volume: parseFloat(c[5]),
+      closeTime: c[6],
+    }));
+  } catch (err) {
+    console.error(`Error fetching klines for ${symbol}:`, err.message);
+    await sendTelegram(
+      `⚠️ <b>خطأ في جلب بيانات الشموع للرمز ${symbol}</b>\n${err.message || err}`
+    );
+    return [];
+  }
 }
 
 // حساب المؤشرات الفنية
@@ -66,6 +85,7 @@ function calculateIndicators(candles) {
   return { rsi, bPercents, macdBuy, macdSell };
 }
 
+// اكتشاف تقاطعات MACD
 function getMacdCross(macd) {
   if (macd.length < 2) return null;
   const prev = macd[macd.length - 2];
@@ -78,7 +98,8 @@ function getMacdCross(macd) {
   return null;
 }
 
-// تنبيهات جاهزة
+// تنبيهات التليغرام
+
 async function alertBuy(symbol, price, amount, dt) {
   const msg = 
 `🟢 <b>إشــارة شــراء</b>
@@ -102,7 +123,7 @@ async function alertSell(symbol, sellPrice, buyPrice, buyTime, sellTime) {
 📉 نسبة الأرباح: ${profitPercent.toFixed(2)}%
 💰 صافي الربح: ${netProfit.toFixed(2)} USD`;
   await sendTelegram(msg);
-  // تحديث الإحصائيات اليومية
+  
   dailyStats.totalTrades++;
   if (netProfit > 0) dailyStats.winningTrades++;
   else dailyStats.losingTrades++;
@@ -178,7 +199,7 @@ async function checkTrading() {
   }
 }
 
-// إرسال تقرير الأرباح اليومية في منتصف الليل (توقيت الجزائر)
+// تقرير الأرباح اليومية في منتصف الليل (توقيت الجزائر)
 schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, async () => {
   try {
     const profitPercent = dailyStats.totalInvested > 0 ? (dailyStats.netProfit / dailyStats.totalInvested) * 100 : 0;
@@ -207,7 +228,7 @@ schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, async () => {
   }
 });
 
-console.log('Trading alert bot started without Binance API, with error logging.');
+console.log('Trading alert bot started without Binance API, with real data and error logging.');
 
 // بدء التشغيل وجدولة الفحص كل 15 دقيقة
 checkTrading();
