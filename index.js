@@ -8,7 +8,7 @@ const moment = require('moment-timezone');
 const SYMBOLS = JSON.parse(fs.readFileSync('./symbols.json')).symbols;
 
 // إعدادات التليغرام
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '8196868477:AAGPMnAc1fFqJvQcJGk8HsC5AYAnRkvu3cM';
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
 const TELEGRAM_CHAT_IDS = process.env.TELEGRAM_CHAT_IDS
   ? process.env.TELEGRAM_CHAT_IDS.split(',').map(id => id.trim())
   : ['1055739217', '5178781562'];
