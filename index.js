@@ -164,11 +164,12 @@ async function checkTrading() {
         if (candles.length === 0) continue;
 
         const indicators = calculateIndicators(candles);
-        const lenInd = indicators.rsi.length;
-        if (lenInd === 0) continue;
+        const rsiLen = indicators.rsi.length;
+        const bPercentLen = indicators.bPercents.length;
+        if (rsiLen === 0 || bPercentLen === 0) continue;
 
-        const rsi = indicators.rsi[lenInd - 1];
-        const bPercent = indicators.bPercents[lenInd - 1];
+        const rsi = indicators.rsi[rsiLen - 1];
+        const bPercent = indicators.bPercents[bPercentLen - 1];
         const macdBuyCross = getMacdCross(indicators.macdBuy);
         const macdSellCross = getMacdCross(indicators.macdSell);
         const closePrice = candles[candles.length - 1].close;
@@ -244,7 +245,7 @@ schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, async () => {
   }
 });
 
-console.log('Trading alert bot started without Binance API, with indicators logging in console.');
+console.log('Trading alert bot started without Binance API, with correct bPercent indexing and indicators logging.');
 
 // بدء التشغيل وجدولة الفحص كل 15 دقيقة
 checkTrading();
