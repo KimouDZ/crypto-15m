@@ -366,7 +366,7 @@ schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, async () => {
   }
 });
 
-let dailyStats = {
+ dailyStats = {
   date: moment().tz('Africa/Algiers').format('YYYY-MM-DD'),
   totalTrades: 0,
   winningTrades: 0,
