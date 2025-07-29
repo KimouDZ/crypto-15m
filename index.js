@@ -153,7 +153,7 @@ let dailyStats = {
 // تتبع حالة كل عملة: 'open' تعني صفقة شراء مفتوحة، 'closed' تعني لا صفقة مفتوحة
 let trades = {};
 
-// المنطق الرئيسي مع تتبع الأخطاء أثناء التحليل
+// المنطق الرئيسي مع تتبع الأخطاء أثناء التحليل وطباعة المؤشرات في الـ log
 async function checkTrading() {
   const now = moment().tz('Africa/Algiers').toDate();
 
@@ -172,6 +172,15 @@ async function checkTrading() {
         const macdBuyCross = getMacdCross(indicators.macdBuy);
         const macdSellCross = getMacdCross(indicators.macdSell);
         const closePrice = candles[candles.length - 1].close;
+
+        // طباعة المؤشرات إلى الـ log (console)
+        console.log(`\n📊 مؤشرات فنية - ${symbol}`);
+        console.log(`🕒 الوقت: ${algTime(now)}`);
+        console.log(`💵 السعر الحالي: ${closePrice.toFixed(6)}`);
+        console.log(`🔹 RSI: ${rsi.toFixed(2)}`);
+        console.log(`🔹 نسبة البراينجر باند (bPercent): ${(bPercent * 100).toFixed(2)}%`);
+        console.log(`🔹 تقاطع MACD بيع: ${macdSellCross ? macdSellCross : 'لا يوجد'}`);
+        console.log(`🔹 تقاطع MACD شراء: ${macdBuyCross ? macdBuyCross : 'لا يوجد'}`);
 
         // شرط إشارة شراء: فقط إذا لم تكن العملة في صفقة مفتوحة حالياً
         if ((trades[symbol] !== 'open') && rsi < 40 && bPercent < 0.4 && macdBuyCross === 'positive') {
@@ -235,7 +244,7 @@ schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, async () => {
   }
 });
 
-console.log('Trading alert bot started without Binance API, with stateful trades and error logging.');
+console.log('Trading alert bot started without Binance API, with indicators logging in console.');
 
 // بدء التشغيل وجدولة الفحص كل 15 دقيقة
 checkTrading();
