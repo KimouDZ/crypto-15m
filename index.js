@@ -1,11 +1,15 @@
+
 const TelegramBot = require('node-telegram-bot-api');
 const technicalIndicators = require('technicalindicators');
 const fs = require('fs');
 const schedule = require('node-schedule');
 const moment = require('moment-timezone');
-const fetch = require('node-fetch'); // تحتاج تثبيته: npm install node-fetch@2
+const fetch = require('node-fetch'); // npm install node-fetch@2
 
-// قراءة العملات من ملف JSON
+// ملف حفظ الصفقات
+const TRADES_FILE = './trades.json';
+
+// قراءة الرموز من ملف JSON
 const SYMBOLS = JSON.parse(fs.readFileSync('./symbols.json')).symbols;
 
 // إعدادات التليغرام
@@ -14,18 +18,20 @@ const TELEGRAM_CHAT_IDS = process.env.TELEGRAM_CHAT_IDS
   ? process.env.TELEGRAM_CHAT_IDS.split(',').map(id => id.trim())
   : ['1055739217', '5178781562'];
 
-// إعدادات التداول الافتراضية لحساب الأرباح
-const TRADE_AMOUNT = 100; // 100 دولار لكل صفقة شراء/بيع
+// إعدادات التداول
+const TRADE_AMOUNT = 100; // 100 دولار لكل صفقة أو تدعيم
 const STOP_LOSS_DROP_PERCENT = 8 / 100; // 8%
+const SUPPORT_DROP_PERCENT = 1.7 / 100; // 1.7% هبوط لتنفيذ التدعيم
+const MAX_SUPPORTS = 3;
 
-// إنشاء بوت التليغرام
+// إنشاء بوت تليغرام
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 
 function algTime(date) {
   return moment(date).tz('Africa/Algiers').format('YYYY-MM-DD HH:mm:ss');
 }
 
-// إرسال رسالة إلى كل Chat ID في القائمة
+// إرسال رسالة تليغرام لجميع الدردشات
 async function sendTelegram(message) {
   for (const chatId of TELEGRAM_CHAT_IDS) {
     try {
@@ -36,7 +42,29 @@ async function sendTelegram(message) {
   }
 }
 
-// جلب الشموع من API العمومي لبينانس (15 دقيقة، 100 شمعة)
+// تحميل الصفقات المحفوظة من الملف
+function loadTrades() {
+  try {
+    if (fs.existsSync(TRADES_FILE)) {
+      const data = fs.readFileSync(TRADES_FILE, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (e) {
+    console.error('Error loading trades file:', e);
+  }
+  return {}; // فارغ إذا لم توجد بيانات سابقة
+}
+
+// حفظ الصفقات في الملف
+function saveTrades(trades) {
+  try {
+    fs.writeFileSync(TRADES_FILE, JSON.stringify(trades, null, 2));
+  } catch (e) {
+    console.error('Error saving trades file:', e);
+  }
+}
+
+// جلب الشموع من API بينانس (15 دقيقة، 100 شمعة)
 async function getKlines(symbol) {
   try {
     const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=100`;
@@ -110,25 +138,42 @@ async function alertBuy(symbol, price, amount, dt) {
   await sendTelegram(msg);
 }
 
-async function alertSell(symbol, sellPrice, buyPrice, buyTime, sellTime) {
-  const profitPercent = ((sellPrice - buyPrice) / buyPrice) * 100;
-  const netProfit = TRADE_AMOUNT * (profitPercent / 100);
+// تعديل دالة التنبيه على البيع لحساب الربح بدقة
+async function alertSell(symbol, sellPrice, trade, sellTime) {
+  // حساب كمية واستثمار أولي
+  const initialQuantity = TRADE_AMOUNT / trade.entryPrice;
+  let totalQuantity = initialQuantity;
+  let totalCost = TRADE_AMOUNT;
+
+  // حساب كمية وتكلفة التدعيمات
+  for (const support of trade.supports) {
+    const supportQuantity = support.amount / support.price;
+    totalQuantity += supportQuantity;
+    totalCost += support.amount;
+  }
+
+  const averagePrice = totalCost / totalQuantity;
+
+  const profitPercent = ((sellPrice - averagePrice) / averagePrice) * 100;
+  const netProfit = totalCost * (profitPercent / 100);
+
   const msg = 
 `🔴 <b>إشــارة بيع</b>
 💰 العملة: ${symbol}
-📈 سعر الشراء: ${buyPrice.toFixed(6)}
-🕒 وقت الشراء: ${algTime(buyTime)}
+📈 متوسط سعر الشراء: ${averagePrice.toFixed(6)}
 💵 سعر البيع: ${sellPrice.toFixed(6)}
 🕒 وقت البيع: ${algTime(sellTime)}
 📉 نسبة الأرباح: ${profitPercent.toFixed(2)}%
 💰 صافي الربح: ${netProfit.toFixed(2)} USD`;
+
   await sendTelegram(msg);
-  
+
+  // تحديث الإحصائيات اليومية
   dailyStats.totalTrades++;
   if (netProfit > 0) dailyStats.winningTrades++;
   else dailyStats.losingTrades++;
   dailyStats.netProfit += netProfit;
-  dailyStats.totalInvested += TRADE_AMOUNT;
+  dailyStats.totalInvested += totalCost;
 }
 
 async function alertStopLoss(symbol, price, dt) {
@@ -136,6 +181,17 @@ async function alertStopLoss(symbol, price, dt) {
 `⛔️ <b>إشــارة وقف خسارة</b>
 💰 العملة: ${symbol}
 💵 السعر: ${price.toFixed(6)}
+🕒 التاريخ والوقت: ${algTime(dt)}`;
+  await sendTelegram(msg);
+}
+
+async function alertSupport(symbol, price, amount, dt, supportNumber) {
+  const msg = 
+`🟠 <b>تنبيه تدعيم</b>
+💰 العملة: ${symbol}
+💵 السعر: ${price.toFixed(6)}
+💸 قيمة التدعيم: ${amount} USD
+🔢 رقم التدعيم: ${supportNumber}
 🕒 التاريخ والوقت: ${algTime(dt)}`;
   await sendTelegram(msg);
 }
@@ -150,10 +206,15 @@ let dailyStats = {
   netProfit: 0,
 };
 
-// تتبع حالة كل عملة: 'open' تعني صفقة شراء مفتوحة، 'closed' تعني لا صفقة مفتوحة
-let trades = {};
+// تحميل الصفقات عند بدء التشغيل
+let trades = loadTrades();
 
-// المنطق الرئيسي مع تتبع الأخطاء أثناء التحليل وطباعة المؤشرات في الـ log
+// دالة حفظ تلقائية بعد تحديث الصفقات
+function updateTrades() {
+  saveTrades(trades);
+}
+
+// دالة الفحص والتحليل مع التدعيم والبيع وحفظ البيانات
 async function checkTrading() {
   const now = moment().tz('Africa/Algiers').toDate();
 
@@ -162,7 +223,7 @@ async function checkTrading() {
       try {
         const candles = await getKlines(symbol);
         if (candles.length === 0) continue;
-
+        
         const indicators = calculateIndicators(candles);
         const rsiLen = indicators.rsi.length;
         const bPercentLen = indicators.bPercents.length;
@@ -174,34 +235,95 @@ async function checkTrading() {
         const macdSellCross = getMacdCross(indicators.macdSell);
         const closePrice = candles[candles.length - 1].close;
 
-        // طباعة المؤشرات إلى الـ log (console)
+        // طباعة المؤشرات للمتابعة في الكونسول
         console.log(`\n📊 مؤشرات فنية - ${symbol}`);
         console.log(`🕒 الوقت: ${algTime(now)}`);
         console.log(`💵 السعر الحالي: ${closePrice.toFixed(6)}`);
         console.log(`🔹 RSI: ${rsi.toFixed(2)}`);
         console.log(`🔹 نسبة البراينجر باند (bPercent): ${(bPercent * 100).toFixed(2)}%`);
-        console.log(`🔹 تقاطع MACD بيع: ${macdSellCross ? macdSellCross : 'لا يوجد'}`);
-        console.log(`🔹 تقاطع MACD شراء: ${macdBuyCross ? macdBuyCross : 'لا يوجد'}`);
+        console.log(`🔹 تقاطع MACD شراء: ${macdBuyCross || 'لا يوجد'}`);
+        console.log(`🔹 تقاطع MACD بيع: ${macdSellCross || 'لا يوجد'}`);
 
-        // شرط إشارة شراء: فقط إذا لم تكن العملة في صفقة مفتوحة حالياً
-        if ((trades[symbol] !== 'open') && rsi < 40 && bPercent < 0.4 && macdBuyCross === 'positive') {
-          await alertBuy(symbol, closePrice, TRADE_AMOUNT, now);
-          trades[symbol] = 'open';
+        let trade = trades[symbol];
+
+        if (!trade || trade.status === 'closed') {
+          if (!trade) {
+            trades[symbol] = {
+              status: 'waiting',
+              refPrice: closePrice,
+              priceDropped: false,
+              supports: [],
+              quantity: 0,
+              tradeMoney: 0,
+              entryTime: null,
+              entryPrice: null,
+            };
+            trade = trades[symbol];
+          }
+
+          if (!trade.priceDropped && closePrice <= trade.refPrice * (1 - SUPPORT_DROP_PERCENT)) {
+            trade.priceDropped = true;
+            console.log(`${symbol}: السعر هبط بنسبة 1.7% من السعر المرجعي.`);
+          }
+
+          if (trade.priceDropped && macdBuyCross === 'positive') {
+            trade.status = 'open';
+            trade.entryPrice = closePrice;
+            trade.tradeMoney = TRADE_AMOUNT;
+            trade.quantity = TRADE_AMOUNT / closePrice;
+            trade.entryTime = now;
+            trade.supports = [];
+            trade.priceDropped = false;
+            console.log(`${symbol}: تمت عملية شراء أولى عند السعر ${closePrice}.`);
+            await alertBuy(symbol, closePrice, TRADE_AMOUNT, now);
+            updateTrades();
+          }
+
+        } else if (trade.status === 'open') {
+          let lastSupportPrice = trade.supports.length > 0 
+                                  ? trade.supports[trade.supports.length - 1].price 
+                                  : trade.entryPrice;
+
+          if (!trade.priceDropped && closePrice <= lastSupportPrice * (1 - SUPPORT_DROP_PERCENT)) {
+            trade.priceDropped = true;
+            console.log(`${symbol}: السعر هبط 1.7% عن آخر دعم.`);
+          }
+
+          if (trade.priceDropped && trade.supports.length < MAX_SUPPORTS && macdBuyCross === 'positive') {
+            const supportAmount = TRADE_AMOUNT;
+            const addedQty = supportAmount / closePrice;
+
+            trade.supports.push({ price: closePrice, time: now, amount: supportAmount });
+            trade.quantity += addedQty;
+            trade.tradeMoney += supportAmount;
+            trade.priceDropped = false;
+
+            console.log(`${symbol}: تنفيذ تدعيم رقم ${trade.supports.length} عند السعر ${closePrice}.`);
+            await alertSupport(symbol, closePrice, supportAmount, now, trade.supports.length);
+            updateTrades();
+          }
+
+          else if (macdSellCross === 'negative') {
+            await alertSell(symbol, closePrice, trade, now);
+            trade.status = 'closed';
+            trade.priceDropped = false;
+            trade.supports = [];
+            trade.quantity = 0;
+            trade.tradeMoney = 0;
+            trade.entryTime = null;
+            trade.entryPrice = null;
+            console.log(`${symbol}: تم تنفيذ بيع الصفقة.`);
+            updateTrades();
+          }
+
+          else if (closePrice <= trade.entryPrice * (1 - STOP_LOSS_DROP_PERCENT)) {
+            await alertStopLoss(symbol, closePrice, now);
+            trade.status = 'closed';
+            trade.priceDropped = false;
+            console.log(`${symbol}: تم تنفيذ وقف خسارة.`);
+            updateTrades();
+          }
         }
-
-        // شرط إشارة بيع: فقط إذا كانت العملة في صفقة مفتوحة
-        if ((trades[symbol] === 'open') && rsi > 55 && macdSellCross === 'negative') {
-          const buyPrice = closePrice * 0.95; // نفترض أن الشراء كان بسعر أقل 5%
-          await alertSell(symbol, closePrice, buyPrice, now, now);
-          trades[symbol] = 'closed';
-        }
-
-        // إشارة وقف خسارة (تغلق الصفقة)
-        if ((trades[symbol] === 'open') && closePrice <= closePrice * (1 - STOP_LOSS_DROP_PERCENT)) {
-          await alertStopLoss(symbol, closePrice, now);
-          trades[symbol] = 'closed';
-        }
-
       } catch (analysisError) {
         console.error(`Error analyzing symbol ${symbol}:`, analysisError);
         await sendTelegram(
@@ -216,7 +338,7 @@ async function checkTrading() {
   }
 }
 
-// تقرير الأرباح اليومية في منتصف الليل (توقيت الجزائر)
+// تقرير الأرباح اليومية في منتصف الليل
 schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, async () => {
   try {
     const profitPercent = dailyStats.totalInvested > 0 ? (dailyStats.netProfit / dailyStats.totalInvested) * 100 : 0;
@@ -230,7 +352,6 @@ schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, async () => {
 📊 نسبة الأرباح: ${profitPercent.toFixed(2)}%`;
     await sendTelegram(report);
 
-    // إعادة تعيين الإحصائيات لليوم التالي
     dailyStats = {
       date: moment().tz('Africa/Algiers').format('YYYY-MM-DD'),
       totalTrades: 0,
@@ -245,9 +366,17 @@ schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, async () => {
   }
 });
 
-console.log('Trading alert bot started without Binance API, with correct bPercent indexing and indicators logging.');
+let dailyStats = {
+  date: moment().tz('Africa/Algiers').format('YYYY-MM-DD'),
+  totalTrades: 0,
+  winningTrades: 0,
+  losingTrades: 0,
+  totalInvested: 0,
+  netProfit: 0,
+};
 
-// بدء التشغيل وجدولة الفحص كل 15 دقيقة
+console.log('Trading alert bot started with persistent trades and accurate profit calculation.');
+
 checkTrading();
 schedule.scheduleJob('*/2 * * * *', () => {
   console.log('Checking alerts at', algTime(new Date()));
