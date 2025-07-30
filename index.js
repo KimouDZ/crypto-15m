@@ -1,4 +1,3 @@
-
 const TelegramBot = require('node-telegram-bot-api');
 const technicalIndicators = require('technicalindicators');
 const fs = require('fs');
@@ -140,12 +139,10 @@ async function alertBuy(symbol, price, amount, dt) {
 
 // تعديل دالة التنبيه على البيع لحساب الربح بدقة
 async function alertSell(symbol, sellPrice, trade, sellTime) {
-  // حساب كمية واستثمار أولي
   const initialQuantity = TRADE_AMOUNT / trade.entryPrice;
   let totalQuantity = initialQuantity;
   let totalCost = TRADE_AMOUNT;
 
-  // حساب كمية وتكلفة التدعيمات
   for (const support of trade.supports) {
     const supportQuantity = support.amount / support.price;
     totalQuantity += supportQuantity;
@@ -168,7 +165,6 @@ async function alertSell(symbol, sellPrice, trade, sellTime) {
 
   await sendTelegram(msg);
 
-  // تحديث الإحصائيات اليومية
   dailyStats.totalTrades++;
   if (netProfit > 0) dailyStats.winningTrades++;
   else dailyStats.losingTrades++;
@@ -209,7 +205,7 @@ let dailyStats = {
 // تحميل الصفقات عند بدء التشغيل
 let trades = loadTrades();
 
-// دالة حفظ تلقائية بعد تحديث الصفقات
+// حفظ تلقائي بعد تحديث الصفقات
 function updateTrades() {
   saveTrades(trades);
 }
@@ -230,12 +226,12 @@ async function checkTrading() {
         if (rsiLen === 0 || bPercentLen === 0) continue;
 
         const rsi = indicators.rsi[rsiLen - 1];
-        const bPercent = indicators.bPercents[bPercentLen - 1];
+        const bPercent = indicators.bPercents[bPercentLen - 1]; // القيمة الأصلية، ليست مضروبة في 100
         const macdBuyCross = getMacdCross(indicators.macdBuy);
         const macdSellCross = getMacdCross(indicators.macdSell);
         const closePrice = candles[candles.length - 1].close;
 
-        // طباعة المؤشرات للمتابعة في الكونسول
+        // طباعة المؤشرات (B% مضروبة 100 فقط للعرض)
         console.log(`\n📊 مؤشرات فنية - ${symbol}`);
         console.log(`🕒 الوقت: ${algTime(now)}`);
         console.log(`💵 السعر الحالي: ${closePrice.toFixed(6)}`);
@@ -261,6 +257,7 @@ async function checkTrading() {
             trade = trades[symbol];
           }
 
+          // شرط استخدام القيمة الأصلية لـbPercent (مثلاً <0.4 بدلاً من <40)
           if (!trade.priceDropped && closePrice <= trade.refPrice * (1 - SUPPORT_DROP_PERCENT)) {
             trade.priceDropped = true;
             console.log(`${symbol}: السعر هبط بنسبة 1.7% من السعر المرجعي.`);
@@ -366,16 +363,7 @@ schedule.scheduleJob({ hour: 0, minute: 0, tz: 'Africa/Algiers' }, async () => {
   }
 });
 
- dailyStats = {
-  date: moment().tz('Africa/Algiers').format('YYYY-MM-DD'),
-  totalTrades: 0,
-  winningTrades: 0,
-  losingTrades: 0,
-  totalInvested: 0,
-  netProfit: 0,
-};
-
-console.log('Trading alert bot started with persistent trades and accurate profit calculation.');
+console.log('Trading alert bot started with persistent trades and original bPercent logic.');
 
 checkTrading();
 schedule.scheduleJob('*/2 * * * *', () => {
