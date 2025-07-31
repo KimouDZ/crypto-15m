@@ -120,7 +120,7 @@ function getMacdCross(macd) {
 // رسائل التنبيهات - ترسل فقط بدون تنفيذ أوامر
 async function alertBuy(symbol, price, dt) {
   const msg =
-`🟢 <b>إشارة شراء (تنبيه فقط)</b>
+`🟢 <b>إشارة شراء </b>
 💰 العملة: ${symbol}
 💵 السعر: ${price}
 💸 القيمة الافتراضية: 100 USDT
@@ -130,7 +130,7 @@ async function alertBuy(symbol, price, dt) {
 
 async function alertSupport(symbol, price, dt, supportNum) {
   const msg =
-`🔵 <b>إشارة تدعيم (تنبيه فقط) #${supportNum}</b>
+`🔵 <b>إشارة تدعيم #${supportNum}</b>
 💰 العملة: ${symbol}
 💵 سعر التدعيم: ${price}
 💸 قيمة التدعيم الافتراضية: 100 USDT
@@ -144,7 +144,7 @@ async function alertSell(symbol, price, entryPrice, dt) {
   const dollarProfit = DUMMY_TRADE_AMOUNT * (price - entryPrice) / entryPrice;
 
   const msg =
-`🔴 <b>إشارة بيع (تنبيه فقط)</b>
+`🔴 <b>إشارة بيع </b>
 💰 العملة: ${symbol}
 📈 سعر الشراء الافتراضي: ${entryPrice}
 💵 سعر البيع الحالي: ${price}
@@ -159,7 +159,7 @@ async function alertStopLoss(symbol, price, entryPrice, dt) {
   const dollarProfit = DUMMY_TRADE_AMOUNT * (price - entryPrice) / entryPrice;
 
   const msg =
-`⛔️ <b>إشارة وقف خسارة (تنبيه فقط)</b>
+`⛔️ <b>إشارة وقف خسارة </b>
 💰 العملة: ${symbol}
 📈 سعر الشراء الافتراضي: ${entryPrice}
 💵 سعر البيع الحالي: ${price}
@@ -173,7 +173,7 @@ async function alertDailyReport(stats, dateStr) {
   const profitPercent = stats.totalInvested > 0 ? (stats.netProfit / stats.totalInvested) * 100 : 0;
 
   const msg =
-`📊 <b>تقرير الأرباح اليومية (تقديري) - ${dateStr}</b>
+`📊 <b>تقرير الأرباح اليومية  - ${dateStr}</b>
 📈 عدد الإشارات: ${stats.totalTrades}
 ✅ إشارات ربح: ${stats.winningTrades}
 ❌ إشارات خسارة: ${stats.losingTrades}
