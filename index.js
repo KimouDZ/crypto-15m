@@ -212,6 +212,7 @@ async function checkTrading() {
         status: 'none',
         supportAlertSent: false,
         supportCount: 0,
+        lastSupportPrice: null,
         sellAlertSent: false,
         stopLossAlertSent: false,
         lastAlert: { type: '', price: 0 }
@@ -227,6 +228,7 @@ async function checkTrading() {
             trade.entryTime = now;
             trade.supportCount = 0;
             trade.supportAlertSent = false;
+            trade.lastSupportPrice = null; // إعادة تعيين سعر الدعم عند بداية صفقة جديدة
             trade.sellAlertSent = false;
             trade.stopLossAlertSent = false;
             trade.lastAlert = { type: 'buy', price: closePrice };
@@ -240,21 +242,27 @@ async function checkTrading() {
 
       // التدعيم والبيع ووقف الخسارة للصفقات المفتوحة
       else if (trade.status === 'open') {
-        // إشارة الدعم - حتى 3 مرات كحد أقصى ولمنع التكرار على نفس السعر
-        const supportCondition = closePrice <= trade.entryPrice * (1 - 0.015) && trade.supportCount < 3;
+        const SUPPORT_THRESHOLD = 0.015; // 1.5%
 
-        if (supportCondition && !trade.supportAlertSent) {
-          await alertSupport(symbol, closePrice.toFixed(6), now, trade.supportCount + 1);
-          trade.supportCount++;
-          trade.supportAlertSent = true;
-          trade.lastAlert = { type: 'support', price: closePrice };
+        // سعر آخر دعم تم تنبيه المستخدم عليه، أو سعر الدخول لو لم يُرسل دعم بعد
+        const lastSupportPrice = trade.lastSupportPrice || trade.entryPrice;
 
-          dailyStats.totalTrades++;
-          dailyStats.totalInvested += DUMMY_TRADE_AMOUNT;
+        // إرسال إشارة تدعيم جديدة فقط لو انخفض السعر عن آخر دعم بنسبة 1.5% أو أكثر، مع حد أقصى 3 دعمات
+        if (closePrice <= lastSupportPrice * (1 - SUPPORT_THRESHOLD) && trade.supportCount < 3) {
+          if (!trade.supportAlertSent) {
+            await alertSupport(symbol, closePrice.toFixed(6), now, trade.supportCount + 1);
+            trade.supportCount++;
+            trade.supportAlertSent = true;
+            trade.lastSupportPrice = closePrice;
+            trade.lastAlert = { type: 'support', price: closePrice };
+
+            dailyStats.totalTrades++;
+            dailyStats.totalInvested += DUMMY_TRADE_AMOUNT;
+          }
         }
 
-        // إعادة تفعيل تنبيه الدعم إذا عاد السعر أعلى 1.5%
-        if (closePrice > trade.entryPrice * (1 - 0.015)) {
+        // إعادة تفعيل تنبيه الدعم إذا ارتد السعر فوق آخر دعم
+        if (closePrice > lastSupportPrice) {
           trade.supportAlertSent = false;
         }
 
