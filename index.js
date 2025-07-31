@@ -139,7 +139,6 @@ async function alertSupport(symbol, price, dt, supportNum) {
 }
 
 async function alertSell(symbol, price, entryPrice, dt) {
-  // حساب الربح كنسبة وتقدير الدولار بناءً على المبلغ الافتراضي فقط
   const percentProfit = ((price - entryPrice) / entryPrice) * 100;
   const dollarProfit = DUMMY_TRADE_AMOUNT * (price - entryPrice) / entryPrice;
 
@@ -209,34 +208,47 @@ async function checkTrading() {
       const macdSellCross = getMacdCross(indicators.macdSell);
       const closePrice = candles[candles.length - 1].close;
 
-      let trade = trades[symbol] || { status: 'none', supportAlertSent: false, supportCount: 0 };
+      // تهيئة بيانات الصفقة مع منع إرسال إشارات متكررة عبر lastAlert
+      let trade = trades[symbol] || {
+        status: 'none',
+        supportAlertSent: false,
+        supportCount: 0,
+        lastAlert: { type: '', price: 0 }
+      };
 
       if (trade.status === 'none') {
-        // شروط شراء - فقط ترصد وترسل تنبيه
+        // شرط شراء - ترسل إشارة مرة واحدة فقط للسعر الحالي
         if (rsi < 40 && bPercent < 0.4 && macdBuyCross === 'positive') {
-          await alertBuy(symbol, closePrice.toFixed(6), now);
-          // نسجل كصفقة مفتوحة افتراضياً
-          trades[symbol] = {
-            entryPrice: closePrice,
-            status: 'open',
-            entryTime: now,
-            supportCount: 0,
-            supportAlertSent: false
-          };
-          dailyStats.totalTrades++;
-          dailyStats.totalInvested += DUMMY_TRADE_AMOUNT;
-          dailyStats.openTrades++;
+          if (trade.lastAlert.type !== 'buy' || trade.lastAlert.price !== closePrice) {
+            await alertBuy(symbol, closePrice.toFixed(6), now);
+            trade.lastAlert = { type: 'buy', price: closePrice };
+            // تسجيل صفقة مفتوحة افتراضياً
+            trades[symbol] = {
+              entryPrice: closePrice,
+              status: 'open',
+              entryTime: now,
+              supportCount: 0,
+              supportAlertSent: false,
+              lastAlert: trade.lastAlert
+            };
+            dailyStats.totalTrades++;
+            dailyStats.totalInvested += DUMMY_TRADE_AMOUNT;
+            dailyStats.openTrades++;
+          }
         }
       } else if (trade.status === 'open') {
-        // شرط الدعم (هبوط سعر 1.5%) مع تنبيه دعم واحد فقط حتى يتغير الشرط
+        // إشارة دعم مع عدد محدود (3 مرات)، وعدم تكرار الإشارة مع نفس السعر
         const supportCondition = closePrice <= trade.entryPrice * (1 - 0.015) && trade.supportCount < 3;
 
         if (supportCondition && !trade.supportAlertSent) {
-          await alertSupport(symbol, closePrice.toFixed(6), now, trade.supportCount + 1);
-          trade.supportCount++;
-          trade.supportAlertSent = true; // تم إرسال تنبيه الدعم الآن
-          dailyStats.totalTrades++;
-          dailyStats.totalInvested += DUMMY_TRADE_AMOUNT;
+          if (trade.lastAlert.type !== 'support' || trade.lastAlert.price !== closePrice) {
+            await alertSupport(symbol, closePrice.toFixed(6), now, trade.supportCount + 1);
+            trade.supportCount++;
+            trade.lastAlert = { type: 'support', price: closePrice };
+            dailyStats.totalTrades++;
+            dailyStats.totalInvested += DUMMY_TRADE_AMOUNT;
+          }
+          trade.supportAlertSent = true; // لمنع تكرار الإشارة حتى يرتفع السعر مجدداً
         }
 
         // إعادة تفعيل تنبيه الدعم في حال ارتفاع السعر فوق مستوى دعم 1.5%
@@ -244,26 +256,32 @@ async function checkTrading() {
           trade.supportAlertSent = false;
         }
 
-        // بيع عند تحقق الشروط
+        // إشارة بيع - ترسل مرة واحدة لكل سعر جديد
         if (rsi > 55 && macdSellCross === 'negative') {
-          await alertSell(symbol, closePrice.toFixed(6), trade.entryPrice, now);
-          // تحديث الإحصائيات التقديرية
-          const profit = DUMMY_TRADE_AMOUNT * (closePrice - trade.entryPrice) / trade.entryPrice;
-          dailyStats.totalProfit += profit > 0 ? profit : 0;
-          dailyStats.netProfit += profit;
-          if (profit > 0) dailyStats.winningTrades++;
-          else dailyStats.losingTrades++;
-          trades[symbol].status = 'sold';
-          dailyStats.openTrades = Math.max(0, dailyStats.openTrades - 1);
+          if (trade.lastAlert.type !== 'sell' || trade.lastAlert.price !== closePrice) {
+            await alertSell(symbol, closePrice.toFixed(6), trade.entryPrice, now);
+            trade.lastAlert = { type: 'sell', price: closePrice };
+            const profit = DUMMY_TRADE_AMOUNT * (closePrice - trade.entryPrice) / trade.entryPrice;
+            dailyStats.totalProfit += profit > 0 ? profit : 0;
+            dailyStats.netProfit += profit;
+            if (profit > 0) dailyStats.winningTrades++;
+            else dailyStats.losingTrades++;
+            trades[symbol].status = 'sold';
+            dailyStats.openTrades = Math.max(0, dailyStats.openTrades - 1);
+          }
         }
-        // وقف خسارة عند هبوط 8%
+
+        // إشارة وقف خسارة - ترسل مرة واحدة لكل سعر جديد
         if (closePrice <= trade.entryPrice * (1 - 0.08)) {
-          await alertStopLoss(symbol, closePrice.toFixed(6), trade.entryPrice, now);
-          const loss = DUMMY_TRADE_AMOUNT * (closePrice - trade.entryPrice) / trade.entryPrice;
-          dailyStats.netProfit += loss;
-          dailyStats.losingTrades++;
-          trades[symbol].status = 'sold';
-          dailyStats.openTrades = Math.max(0, dailyStats.openTrades - 1);
+          if (trade.lastAlert.type !== 'stop' || trade.lastAlert.price !== closePrice) {
+            await alertStopLoss(symbol, closePrice.toFixed(6), trade.entryPrice, now);
+            trade.lastAlert = { type: 'stop', price: closePrice };
+            const loss = DUMMY_TRADE_AMOUNT * (closePrice - trade.entryPrice) / trade.entryPrice;
+            dailyStats.netProfit += loss;
+            dailyStats.losingTrades++;
+            trades[symbol].status = 'sold';
+            dailyStats.openTrades = Math.max(0, dailyStats.openTrades - 1);
+          }
         }
       }
 
