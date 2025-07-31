@@ -1,29 +1,16 @@
 {
   "name": "trading-alert-bot",
   "version": "1.0.0",
-  "description": "Trading alert bot that sends notifications via Telegram based on technical indicators without executing trades",
+  "description": "Trading signals alert bot for Telegram with daily profit report",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
+    "binance-api-node": "^0.12.3",
     "node-telegram-bot-api": "^0.61.0",
-    "technicalindicators": "^3.0.9",
-    "moment-timezone": "^0.5.43",
+    "technicalindicators": "^3.0.11",
     "node-schedule": "^2.1.1",
-      "node-fetch": "^2.6.7"
-
-  },
-  "engines": {
-    "node": ">=14"
-  },
-  "keywords": [
-    "trading",
-    "telegram",
-    "bot",
-    "alerts",
-    "technical-indicators"
-  ],
-  "author": "Your Name",
-  "license": "MIT"
+    "moment-timezone": "^0.5.45"
+  }
 }
