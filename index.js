@@ -9,7 +9,7 @@ const moment = require('moment-timezone');
 const SYMBOLS = JSON.parse(fs.readFileSync('./symbols.json')).symbols;
 
 // إعداد التوكن والمعرفات للتليجرام
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '8161859979:AAFlliIFMfGNlr_xQUlxF92CgDX00PaqVQ8';
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '8196868477:AAGPMnAc1fFqJvQcJGk8HsC5AYAnRkvu3cM';
 const TELEGRAM_CHAT_IDS = process.env.TELEGRAM_CHAT_IDS
   ? process.env.TELEGRAM_CHAT_IDS.split(',').map(id => id.trim())
   : ['1055739217','5178781562'];
@@ -120,7 +120,7 @@ function getMacdCross(macd) {
 // رسائل التنبيهات - ترسل فقط بدون تنفيذ أوامر
 async function alertBuy(symbol, price, dt) {
   const msg =
-`🟢 <b>إشارة شراء </b>
+`🟢 <b>إشارة شراء (تنبيه فقط)</b>
 💰 العملة: ${symbol}
 💵 السعر: ${price}
 💸 القيمة الافتراضية: 100 USDT
@@ -130,7 +130,7 @@ async function alertBuy(symbol, price, dt) {
 
 async function alertSupport(symbol, price, dt, supportNum) {
   const msg =
-`🔵 <b>إشارة تدعيم #${supportNum}</b>
+`🔵 <b>إشارة تدعيم (تنبيه فقط) #${supportNum}</b>
 💰 العملة: ${symbol}
 💵 سعر التدعيم: ${price}
 💸 قيمة التدعيم الافتراضية: 100 USDT
@@ -144,7 +144,7 @@ async function alertSell(symbol, price, entryPrice, dt) {
   const dollarProfit = DUMMY_TRADE_AMOUNT * (price - entryPrice) / entryPrice;
 
   const msg =
-`🔴 <b>إشارة بيع </b>
+`🔴 <b>إشارة بيع (تنبيه فقط)</b>
 💰 العملة: ${symbol}
 📈 سعر الشراء الافتراضي: ${entryPrice}
 💵 سعر البيع الحالي: ${price}
@@ -159,7 +159,7 @@ async function alertStopLoss(symbol, price, entryPrice, dt) {
   const dollarProfit = DUMMY_TRADE_AMOUNT * (price - entryPrice) / entryPrice;
 
   const msg =
-`⛔️ <b>إشارة وقف خسارة </b>
+`⛔️ <b>إشارة وقف خسارة (تنبيه فقط)</b>
 💰 العملة: ${symbol}
 📈 سعر الشراء الافتراضي: ${entryPrice}
 💵 سعر البيع الحالي: ${price}
@@ -173,7 +173,7 @@ async function alertDailyReport(stats, dateStr) {
   const profitPercent = stats.totalInvested > 0 ? (stats.netProfit / stats.totalInvested) * 100 : 0;
 
   const msg =
-`📊 <b>تقرير الأرباح اليومية  - ${dateStr}</b>
+`📊 <b>تقرير الأرباح اليومية (تقديري) - ${dateStr}</b>
 📈 عدد الإشارات: ${stats.totalTrades}
 ✅ إشارات ربح: ${stats.winningTrades}
 ❌ إشارات خسارة: ${stats.losingTrades}
@@ -209,7 +209,7 @@ async function checkTrading() {
       const macdSellCross = getMacdCross(indicators.macdSell);
       const closePrice = candles[candles.length - 1].close;
 
-      let trade = trades[symbol] || { status: 'none' };
+      let trade = trades[symbol] || { status: 'none', supportAlertSent: false, supportCount: 0 };
 
       if (trade.status === 'none') {
         // شروط شراء - فقط ترصد وترسل تنبيه
@@ -220,20 +220,30 @@ async function checkTrading() {
             entryPrice: closePrice,
             status: 'open',
             entryTime: now,
-            supportCount: 0
+            supportCount: 0,
+            supportAlertSent: false
           };
           dailyStats.totalTrades++;
           dailyStats.totalInvested += DUMMY_TRADE_AMOUNT;
           dailyStats.openTrades++;
         }
       } else if (trade.status === 'open') {
-        // تنبيه تدعيم إذا السعر هبط 1.5%
-        if (closePrice <= trade.entryPrice * (1 - 0.015) && trade.supportCount < 3) {
+        // شرط الدعم (هبوط سعر 1.5%) مع تنبيه دعم واحد فقط حتى يتغير الشرط
+        const supportCondition = closePrice <= trade.entryPrice * (1 - 0.015) && trade.supportCount < 3;
+
+        if (supportCondition && !trade.supportAlertSent) {
           await alertSupport(symbol, closePrice.toFixed(6), now, trade.supportCount + 1);
           trade.supportCount++;
+          trade.supportAlertSent = true; // تم إرسال تنبيه الدعم الآن
           dailyStats.totalTrades++;
           dailyStats.totalInvested += DUMMY_TRADE_AMOUNT;
         }
+
+        // إعادة تفعيل تنبيه الدعم في حال ارتفاع السعر فوق مستوى دعم 1.5%
+        if (closePrice > trade.entryPrice * (1 - 0.015)) {
+          trade.supportAlertSent = false;
+        }
+
         // بيع عند تحقق الشروط
         if (rsi > 55 && macdSellCross === 'negative') {
           await alertSell(symbol, closePrice.toFixed(6), trade.entryPrice, now);
@@ -256,6 +266,9 @@ async function checkTrading() {
           dailyStats.openTrades = Math.max(0, dailyStats.openTrades - 1);
         }
       }
+
+      trades[symbol] = trade; // تحديث بيانات الصفقة بعد التغييرات
+
     } catch (e) {
       console.error(`خطأ أثناء معالجة الرمز ${symbol}:`, e.message);
     }
